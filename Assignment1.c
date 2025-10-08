@@ -2,90 +2,117 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+#include <limits.h> // for INT_MAX and INT_MIN
 
-
-
-// forward declarations
-int solveExpr(const char *expr, int *err);
-int solveTerm(const char **expr, int *err);
-int solveFactor(const char **expr, int *err);
+const char *p; // global pointer for parsing
 
 // function to skip spaces
-void skipSpaces(const char **expr) {
-    while (**expr == ' ') {
-        (*expr)++;
-    }
+void skipSpaces(void) {
+    while (*p == ' ') p++;
 }
 
-// factor: handles numbers and brackets
-int solveFactor(const char **expr, int *err) {
-    skipSpaces(expr);
+// helper function to check overflow
+int willOverflow(long long a, long long b, char op) {
+    long long result;
+    switch(op) {
+        case '+': result = a + b; break;
+        case '-': result = a - b; break;
+        case '*': result = a * b; break;
+        case '/':
+            if (b == 0) return 1;
+            result = a / b;
+            break;
+        default: return 0;
+    }
+    return (result > INT_MAX || result < INT_MIN);
+}
 
-    // if it’s a number
-    if (isdigit(**expr)) {
+// factor: handles numbers only (brackets invalid)
+int solveFactor(int *err) {
+    skipSpaces();
+    if (*p == '\0') { *err = 1; return 0; }
+
+    if (isdigit((unsigned char)*p)) {
         int num = 0;
-        while (isdigit(**expr)) {
-            num = num * 10 + (**expr - '0');
-            (*expr)++;
+        while (isdigit((unsigned char)*p)) {
+            num = num * 10 + (*p - '0');
+            p++;
         }
         return num;
     }
-    // if expression inside brackets
-    else if (**expr == '(') {
-        (*expr)++; // skip '('
-        int val = solveExpr(*expr, err);
-        skipSpaces(expr);
-        if (**expr == ')') {
-            (*expr)++;
-        } else {
-            *err = 1; // invalid parenthesis
-        }
-        return val;
+    // brackets not allowed
+    else if (*p == '(' || *p == ')') {
+        *err = 1;
+        return 0;
     }
     else {
-        *err = 1; // invalid input
+        *err = 1; // invalid character
         return 0;
     }
 }
 
 // term: handles * and /
-int solveTerm(const char **expr, int *err) {
-    int result = solveFactor(expr, err);
-    skipSpaces(expr);
+int solveTerm(int *err) {
+    int result = solveFactor(err);
+    if (*err) return 0;
+    skipSpaces();
 
-    while (**expr == '*' || **expr == '/') {
-        char op = **expr;
-        (*expr)++;
-        int right = solveFactor(expr, err);
+    while (*p == '*' || *p == '/') {
+        char op = *p;
+        p++;
+        int right = solveFactor(err);
+        if (*err) return 0;
 
         if (op == '*') {
+            if (willOverflow(result, right, '*')) {
+                *err = 3; // overflow
+                return 0;
+            }
             result *= right;
         } else {
             if (right == 0) {
                 *err = 2; // divide by zero
                 return 0;
             }
+            if (willOverflow(result, right, '/')) {
+                *err = 3; // overflow
+                return 0;
+            }
             result /= right;
         }
-        skipSpaces(expr);
+        skipSpaces();
     }
     return result;
 }
 
 // expression: handles + and -
-int solveExpr(const char *expr, int *err) {
-    int result = solveTerm(&expr, err);
-    skipSpaces(&expr);
+int solveExpr(int *err) {
+    skipSpaces();
+    int result = solveTerm(err);
+    if (*err) return 0;
+    skipSpaces();
 
-    while (*expr == '+' || *expr == '-') {
-        char op = *expr;
-        expr++;
-        int right = solveTerm(&expr, err);
+    while (*p == '+' || *p == '-') {
+        char op = *p;
+        p++;
+        int right = solveTerm(err);
+        if (*err) return 0;
+
+        if (willOverflow(result, right, op)) {
+            *err = 3; // overflow
+            return 0;
+        }
 
         if (op == '+') result += right;
         else result -= right;
 
-        skipSpaces(&expr);
+        skipSpaces();
+
+        // check for invalid character anywhere in expression
+        if (*p && !isdigit(*p) && *p != '+' && *p != '-' && *p != '*' && *p != '/' && *p != ' ') {
+            *err = 1;
+            return 0;
+        }
     }
     return result;
 }
@@ -99,18 +126,33 @@ int main() {
         return 0;
     }
 
+    // check for expression too long
+    if (input[strlen(input) - 1] != '\n') {
+        printf("Error: Expression too long! Maximum allowed length is 99 characters.\n");
+        int c;
+        while ((c = getchar()) != '\n' && c != EOF); // flush
+        return 0;
+    }
+
     // remove newline
     input[strcspn(input, "\n")] = 0;
 
+    p = input; // initialize global pointer
     int err = 0;
-    int ans = solveExpr(input, &err);
+    int ans = solveExpr(&err);
+
+    skipSpaces();
+    if (*p != '\0') err = 1; // leftover invalid characters
 
     if (err == 1) {
         printf("Error: Invalid expression.\n");
     } else if (err == 2) {
         printf("Error: Division by zero.\n");
+    } else if (err == 3) {
+        printf("Error: Integer overflow.\n");
     } else {
         printf("%d\n", ans);
     }
+
     return 0;
 }
