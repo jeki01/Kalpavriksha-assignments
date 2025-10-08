@@ -5,9 +5,9 @@
 #define FILE_NAME "users.txt"
 
 typedef struct {
-    int id;
+    unsigned int id;       // id cannot be negative
     char name[50];
-    int age;
+    unsigned short age;    // age cannot be negative
 } User;
 
 // Function prototypes
@@ -15,6 +15,7 @@ void addUser();
 void displayUsers();
 void updateUser();
 void deleteUser();
+unsigned int getUnsignedInt(const char *prompt);
 
 int main() {
     int choice;
@@ -26,9 +27,8 @@ int main() {
         printf("3. Update User\n");
         printf("4. Delete User\n");
         printf("5. Exit\n");
-        printf("Enter your choice: ");
-        scanf("%d", &choice);
-        getchar(); // clear buffer
+
+        choice = getUnsignedInt("Enter your choice: ");
 
         switch (choice) {
             case 1: addUser(); break;
@@ -42,75 +42,93 @@ int main() {
     return 0;
 }
 
-// Create - Add user to file
+// Safe input function for unsigned integers
+unsigned int getUnsignedInt(const char *prompt) {
+    char buffer[20];
+    unsigned int num;
+    while (1) {
+        printf("%s", prompt);
+        if (!fgets(buffer, sizeof(buffer), stdin)) {
+            printf("Error reading input. Try again.\n");
+            continue;
+        }
+        if (sscanf(buffer, "%u", &num) != 1) {
+            printf("Invalid input. Please enter a valid number.\n");
+            continue;
+        }
+        return num;
+    }
+}
+
+// Add user
 void addUser() {
-    FILE *fp = fopen(FILE_NAME, "a"); // open in append mode
+    FILE *fp = fopen(FILE_NAME, "a");
     if (fp == NULL) {
         printf("Error opening file!\n");
         return;
     }
 
     User u;
-    printf("Enter ID: ");
-    scanf("%d", &u.id);
-    getchar();
+    u.id = getUnsignedInt("Enter ID: ");
+
     printf("Enter Name: ");
     fgets(u.name, sizeof(u.name), stdin);
-    u.name[strcspn(u.name, "\n")] = 0; // remove newline
-    printf("Enter Age: ");
-    scanf("%d", &u.age);
+    u.name[strcspn(u.name, "\n")] = 0;
 
-    fprintf(fp, "%d %s %d\n", u.id, u.name, u.age);
+    u.age = (unsigned short)getUnsignedInt("Enter Age: ");
+
+    fprintf(fp, "%u %s %hu\n", u.id, u.name, u.age);
     fclose(fp);
     printf("User added successfully!\n");
 }
 
-// Read - Display all users
+// Display users
 void displayUsers() {
     FILE *fp = fopen(FILE_NAME, "r");
     if (fp == NULL) {
-        printf("No users found. File not created yet.\n");
+        printf("Error opening file.\n"); // Updated message
         return;
     }
 
     User u;
     printf("\n--- User Records ---\n");
-    while (fscanf(fp, "%d %s %d", &u.id, u.name, &u.age) == 3) {
-        printf("ID: %d | Name: %s | Age: %d\n", u.id, u.name, u.age);
+    while (fscanf(fp, "%u %49s %hu", &u.id, u.name, &u.age) == 3) {
+        printf("ID: %u | Name: %s | Age: %hu\n", u.id, u.name, u.age);
     }
 
     fclose(fp);
 }
 
-// Update - Modify a user by ID
+// Update user
 void updateUser() {
     FILE *fp = fopen(FILE_NAME, "r");
     if (fp == NULL) {
-        printf("No records to update.\n");
+        printf("Error opening file.\n"); // Updated message
         return;
     }
 
-    FILE *temp = fopen("temp.txt", "w");
+    FILE *temp = fopen("temp.txt", "w"); // Keeping temp file as in old structure
     if (temp == NULL) {
         printf("Error creating temp file.\n");
         fclose(fp);
         return;
     }
 
-    int id, found = 0;
+    unsigned int id;
     printf("Enter ID to update: ");
-    scanf("%d", &id);
+    id = getUnsignedInt("");
 
     User u;
-    while (fscanf(fp, "%d %s %d", &u.id, u.name, &u.age) == 3) {
+    int found = 0;
+    while (fscanf(fp, "%u %49s %hu", &u.id, u.name, &u.age) == 3) {
         if (u.id == id) {
             found = 1;
             printf("Enter new Name: ");
-            scanf("%s", u.name);
-            printf("Enter new Age: ");
-            scanf("%d", &u.age);
+            fgets(u.name, sizeof(u.name), stdin);
+            u.name[strcspn(u.name, "\n")] = 0;
+            u.age = (unsigned short)getUnsignedInt("Enter new Age: ");
         }
-        fprintf(temp, "%d %s %d\n", u.id, u.name, u.age);
+        fprintf(temp, "%u %s %hu\n", u.id, u.name, u.age);
     }
 
     fclose(fp);
@@ -122,14 +140,14 @@ void updateUser() {
     if (found)
         printf("User updated successfully!\n");
     else
-        printf("User with ID %d not found.\n", id);
+        printf("User with ID %u not found.\n", id);
 }
 
-// Delete - Remove user by ID
+// Delete user
 void deleteUser() {
     FILE *fp = fopen(FILE_NAME, "r");
     if (fp == NULL) {
-        printf("No records to delete.\n");
+        printf("Error opening file.\n"); // Updated message
         return;
     }
 
@@ -140,17 +158,18 @@ void deleteUser() {
         return;
     }
 
-    int id, found = 0;
+    unsigned int id;
     printf("Enter ID to delete: ");
-    scanf("%d", &id);
+    id = getUnsignedInt("");
 
     User u;
-    while (fscanf(fp, "%d %s %d", &u.id, u.name, &u.age) == 3) {
+    int found = 0;
+    while (fscanf(fp, "%u %49s %hu", &u.id, u.name, &u.age) == 3) {
         if (u.id == id) {
             found = 1;
-            continue; // skip writing this record
+            continue;
         }
-        fprintf(temp, "%d %s %d\n", u.id, u.name, u.age);
+        fprintf(temp, "%u %s %hu\n", u.id, u.name, u.age);
     }
 
     fclose(fp);
@@ -162,5 +181,5 @@ void deleteUser() {
     if (found)
         printf("User deleted successfully!\n");
     else
-        printf("User with ID %d not found.\n", id);
+        printf("User with ID %u not found.\n", id);
 }
