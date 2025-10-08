@@ -13,21 +13,32 @@ void skipSpaces(void) {
 
 // helper function to check overflow
 int willOverflow(long long a, long long b, char op) {
-    long long result;
-    switch(op) {
-        case '+': result = a + b; break;
-        case '-': result = a - b; break;
-        case '*': result = a * b; break;
-        case '/':
-            if (b == 0) return 1;
-            result = a / b;
+    switch (op) {
+        case '+':
+            if ((b > 0 && a > INT_MAX - b) || (b < 0 && a < INT_MIN - b))
+                return 1;
             break;
-        default: return 0;
+
+        case '-':
+            if ((b < 0 && a > INT_MAX + b) || (b > 0 && a < INT_MIN + b))
+                return 1;
+            break;
+
+        case '*':
+            if (a != 0 && (a > INT_MAX / b || a < INT_MIN / b))
+                return 1;
+            break;
+
+        case '/':
+            if (b == 0 || (a == INT_MIN && b == -1))
+                return 1;
+            break;
     }
-    return (result > INT_MAX || result < INT_MIN);
+    return 0;
 }
 
-// factor: handles numbers only (brackets invalid)
+
+// It skips any leading spaces and checks the current character.
 int solveFactor(int *err) {
     skipSpaces();
     if (*p == '\0') { *err = 1; return 0; }
@@ -156,3 +167,4 @@ int main() {
 
     return 0;
 }
+
