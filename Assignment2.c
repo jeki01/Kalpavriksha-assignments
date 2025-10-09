@@ -99,43 +99,52 @@ void displayUsers() {
     fclose(fp);
 }
 
-// Update user
+// Update user by ID (in-memory approach, no temp file)
 void updateUser() {
     FILE *fp = fopen(FILE_NAME, "r");
     if (fp == NULL) {
-        printf("Error opening file.\n"); // Updated message
+        printf("Error opening file.\n");
         return;
     }
 
-    FILE *temp = fopen("temp.txt", "w"); // Keeping temp file as in old structure
-    if (temp == NULL) {
-        printf("Error creating temp file.\n");
-        fclose(fp);
+    // read all users into array
+    #define MAX_USERS 1000
+    User users[MAX_USERS];
+    int count = 0;
+    while (count < MAX_USERS && fscanf(fp, "%u %49s %hu", &users[count].id, users[count].name, &users[count].age) == 3) {
+        count++;
+    }
+    fclose(fp);
+
+    if (count == 0) {
+        printf("No records to update.\n");
         return;
     }
 
-    unsigned int id;
-    printf("Enter ID to update: ");
-    id = getUnsignedInt("");
-
-    User u;
+    unsigned int id = getUnsignedInt("Enter ID to update: ");
     int found = 0;
-    while (fscanf(fp, "%u %49s %hu", &u.id, u.name, &u.age) == 3) {
-        if (u.id == id) {
+
+    for (int i = 0; i < count; i++) {
+        if (users[i].id == id) {
             found = 1;
             printf("Enter new Name: ");
-            fgets(u.name, sizeof(u.name), stdin);
-            u.name[strcspn(u.name, "\n")] = 0;
-            u.age = (unsigned short)getUnsignedInt("Enter new Age: ");
+            fgets(users[i].name, sizeof(users[i].name), stdin);
+            users[i].name[strcspn(users[i].name, "\n")] = 0;
+            users[i].age = (unsigned short)getUnsignedInt("Enter new Age: ");
+            break;
         }
-        fprintf(temp, "%u %s %hu\n", u.id, u.name, u.age);
     }
 
+    // write back all users to the original file
+    fp = fopen(FILE_NAME, "w");
+    if (fp == NULL) {
+        printf("Error opening file for writing.\n");
+        return;
+    }
+    for (int i = 0; i < count; i++) {
+        fprintf(fp, "%u %s %hu\n", users[i].id, users[i].name, users[i].age);
+    }
     fclose(fp);
-    fclose(temp);
-
-    remove(FILE_NAME);
-    rename("temp.txt", FILE_NAME);
 
     if (found)
         printf("User updated successfully!\n");
@@ -143,43 +152,59 @@ void updateUser() {
         printf("User with ID %u not found.\n", id);
 }
 
-// Delete user
+
+// Delete user by ID 
 void deleteUser() {
     FILE *fp = fopen(FILE_NAME, "r");
     if (fp == NULL) {
-        printf("Error opening file.\n"); // Updated message
+        printf("Error opening file.\n");
         return;
     }
 
-    FILE *temp = fopen("temp.txt", "w");
-    if (temp == NULL) {
-        printf("Error creating temp file.\n");
-        fclose(fp);
-        return;
+    // read all users into array
+    #define MAX_USERS 1000
+    static User users[MAX_USERS];
+    int count = 0;
+    while (count < MAX_USERS && fscanf(fp, "%u %49s %hu", &users[count].id, users[count].name, &users[count].age) == 3) {
+        count++;
     }
-
-    unsigned int id;
-    printf("Enter ID to delete: ");
-    id = getUnsignedInt("");
-
-    User u;
-    int found = 0;
-    while (fscanf(fp, "%u %49s %hu", &u.id, u.name, &u.age) == 3) {
-        if (u.id == id) {
-            found = 1;
-            continue;
-        }
-        fprintf(temp, "%u %s %hu\n", u.id, u.name, u.age);
-    }
-
     fclose(fp);
-    fclose(temp);
 
-    remove(FILE_NAME);
-    rename("temp.txt", FILE_NAME);
+    if (count == 0) {
+        printf("No records to delete.\n");
+        return;
+    }
+
+    unsigned int id = getUnsignedInt("Enter ID to delete: ");
+    int found = 0;
+
+    // remove the user by shifting array
+    for (int i = 0; i < count; i++) {
+        if (users[i].id == id) {
+            found = 1;
+            for (int j = i; j < count - 1; j++) {
+                users[j] = users[j + 1];
+            }
+            count--; // one less record
+            break;
+        }
+    }
+
+    // write back remaining users
+    fp = fopen(FILE_NAME, "w");
+    if (fp == NULL) {
+        printf("Error opening file for writing.\n");
+        return;
+    }
+    for (int i = 0; i < count; i++) {
+        fprintf(fp, "%u %s %hu\n", users[i].id, users[i].name, users[i].age);
+    }
+    fclose(fp);
 
     if (found)
         printf("User deleted successfully!\n");
     else
         printf("User with ID %u not found.\n", id);
 }
+
+
