@@ -20,23 +20,23 @@ struct Student_details
 
 
 //Calculate totalMarks marks using arithmetic operations
-int total_marks(const struct Student_details student) {
+int total_marks(const struct Student_details *student) {
     int totalMarks = 0;
     for (int i = 0; i < SUBJECT_COUNT; i++) {
-        totalMarks += student.marks[i];
+        totalMarks += student->marks[i];
     }
     return totalMarks;
 }
 
 //calculate  average marks
-float average_marks(const struct Student_details student){
-        return student.totalMarks / (float)SUBJECT_COUNT;
+float average_marks(const struct Student_details *student){
+        return student->totalMarks / (float)SUBJECT_COUNT;
 }
 
 //function for grade
-char student_grade(struct Student_details student){
+char student_grade(struct Student_details *student){
         char grade;
-        float average=student.average;
+        float average=student->average;
         if (average >= 85)
         return 'A';
     else if (average >= 70)
@@ -114,16 +114,16 @@ int main(){
             } 
             else {
                 printf("Invalid input format! Please try again.\n");
-            }
+            }   
         }
         
 
        
         
      // call function
-        students[i].totalMarks = total_marks(students[i]);
-        students[i].average = average_marks(students[i]);
-        students[i].grade = student_grade(students[i]);
+        students[i].totalMarks = total_marks(&students[i]);
+        students[i].average = average_marks(&students[i]);
+        students[i].grade = student_grade(&students[i]);
 
     }
 
