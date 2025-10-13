@@ -34,8 +34,7 @@ float average_marks(const struct Student_details *student){
 }
 
 //function for grade
-char student_grade(struct Student_details *student){
-        char grade;
+char student_grade(const struct Student_details *student){
         float average=student->average;
         if (average >= 85)
         return 'A';
@@ -63,7 +62,7 @@ void performance_stars(char grade){
 }
 
 // recurcive function for print roll number
-void print_roll_numbers(struct Student_details student[], int n, int index){
+void print_roll_numbers(const struct Student_details student[], int n, int index){
     if(index == n) return; // base case
     printf("%d ", student[index].rollNumber);
     print_roll_numbers(student, n, index+1); 
@@ -82,7 +81,7 @@ int main(){
     }
 
     // Create an array of structures
-    struct Student_details students[number_students];
+    struct Student_details students[MAX_STUDENTS];
     
     
     //taking the input of each students here 
