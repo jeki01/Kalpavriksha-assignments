@@ -11,26 +11,26 @@ const int MAX_MARKS = 100;
 struct Student_details
 {
     char name[50]; //to store student'student name
-    int rollNumber; //to store roll number 
-    int marks[SUBJECT_COUNT]; //to store marks
-    int totalMarks;  //to store totalMarks marks
+    unsigned int rollNumber; //to store roll number 
+    unsigned short marks[SUBJECT_COUNT]; //to store marks
+    unsigned short totalMarks;  //to store totalMarks marks
     float average;  //to store average of marks
-     char  grade; //to store assigned grade
+    char  grade; //to store assigned grade
 };
 
 
 //Calculate totalMarks marks using arithmetic operations
-float total_marks(struct Student_details student){
-    float totalMarks=0;
-    for(int i=0;i<3;i++){
-        totalMarks +=student.marks[i];
+int total_marks(const struct Student_details student) {
+    int totalMarks = 0;
+    for (int i = 0; i < SUBJECT_COUNT; i++) {
+        totalMarks += student.marks[i];
     }
-    return  totalMarks;
+    return totalMarks;
 }
 
 //calculate  average marks
-float average_marks(struct Student_details student){
-        return student.totalMarks/3.0;
+float average_marks(const struct Student_details student){
+        return student.totalMarks / (float)SUBJECT_COUNT;
 }
 
 //function for grade
@@ -58,7 +58,7 @@ void performance_stars(char grade){
         case 'B': printf("Performance: ****\n"); break;
         case 'C': printf("Performance: ***\n"); break;
         case 'D': printf("Performance: **\n"); break;
-        default:  printf("Performance: \n"); // F or fail
+        default:  printf("Performance: \n"); 
     }
 }
 
@@ -73,7 +73,7 @@ void print_roll_numbers(struct Student_details student[], int n, int index){
 int main(){
 
     int number_students;//to store the number of students
-    scanf("%d ",&number_students);
+    scanf("%d",&number_students);
     getchar();
     if (number_students>MAX_STUDENTS || number_students<MIN_STUDENTS)
     {
@@ -92,24 +92,24 @@ int main(){
     
         fgets(buffer, sizeof(buffer),stdin);
 
-        int rollNumber_, marks1_, marks2_, marks3_;
+        unsigned int roll_number, marks_1, marks_2, marks_3;
         char name_[50];
 
-        int fields = sscanf(buffer, "%d %s %d %d %d", &rollNumber_, name_, &marks1_, &marks2_, &marks3_);
+        int fields = sscanf(buffer, "%u %s %d %d %d", &roll_number, name_, &marks_1, &marks_2, &marks_3);
 
         if(fields == 5){
-             if ((marks1_ < MIN_MARKS || marks1_ > MAX_MARKS) ||
-                (marks2_ < MIN_MARKS || marks2_ > MAX_MARKS) ||
-                (marks3_ < MIN_MARKS || marks3_ > MAX_MARKS)) {
+             if ((marks_1 < MIN_MARKS || marks_1 > MAX_MARKS) ||
+                (marks_2 < MIN_MARKS || marks_2 > MAX_MARKS) ||
+                (marks_3 < MIN_MARKS || marks_3 > MAX_MARKS)) {
                 printf("Error: Marks must be between %d and %d. Please re-enter this student's data.\n",
                        MIN_MARKS, MAX_MARKS);
                 continue; // ask again for input
             }
-            students[i].rollNumber = rollNumber_;
+            students[i].rollNumber = roll_number;
                 strcpy(students[i].name, name_);
-                students[i].marks[0] = marks1_;
-                students[i].marks[1] = marks2_;
-                students[i].marks[2] = marks3_;
+                students[i].marks[0] = marks_1;
+                students[i].marks[1] = marks_2;
+                students[i].marks[2] = marks_3;
                 break;
             } 
             else {
