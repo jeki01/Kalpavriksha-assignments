@@ -5,7 +5,7 @@
 #define MIN_SIZE 2
 #define MAX_SIZE 10
 
-// Swap two values using pointers
+// Swap two values
 void swap(unsigned short *firstValue, unsigned short *secondValue) {
     unsigned short temp = *firstValue;
     *firstValue = *secondValue;
@@ -30,72 +30,65 @@ void printMatrix(unsigned short *matrixPtr, int matrixSize, const char *title) {
     }
 }
 
-// Rotate matrix 90° clockwise (in-place)
+// Rotate matrix 90° clockwise in-place
 void rotateMatrix(unsigned short *matrixPtr, int matrixSize) {
+    
     for (int row = 0; row < matrixSize; row++) {
         for (int col = row + 1; col < matrixSize; col++) {
-            swap((matrixPtr + row * matrixSize + col), (matrixPtr + col * matrixSize + row));
+            swap(matrixPtr + row * matrixSize + col, matrixPtr + col * matrixSize + row);
         }
     }
+
     for (int row = 0; row < matrixSize; row++) {
         for (int col = 0; col < matrixSize / 2; col++) {
-            swap((matrixPtr + row * matrixSize + col),
-                 (matrixPtr + row * matrixSize + (matrixSize - 1 - col)));
+            swap(matrixPtr + row * matrixSize + col,
+                 matrixPtr + row * matrixSize + (matrixSize - 1 - col));
         }
     }
 }
 
-// Apply 3×3 smoothing filter using pointer access
-void applySmoothing(unsigned short *matrixPtr, int matrixSize) {
-    unsigned short *tempRow = (unsigned short *)malloc(matrixSize * sizeof(unsigned short));
-    if (!tempRow) {
-        printf("Memory allocation failed.\n");
-        return;
-    }
+// Apply 3×3 smoothing filter in-place; r
+int applySmoothing(unsigned short *matrixPtr, int matrixSize) {
+    unsigned short *rowBuffer = (unsigned short *)malloc(matrixSize * sizeof(unsigned short));
+    if (!rowBuffer) return 0;
 
-    // Create a copy of original matrix row-by-row temporarily (O(n))
     unsigned short *previousRow = (unsigned short *)malloc(matrixSize * sizeof(unsigned short));
     if (!previousRow) {
-        free(tempRow);
-        printf("Memory allocation failed.\n");
-        return;
+        free(rowBuffer);
+        return 0;
     }
 
-    // Process first row separately
     for (int row = 0; row < matrixSize; row++) {
         for (int col = 0; col < matrixSize; col++) {
-            int sum = 0, count = 0;
-
+            int neighborSum = 0, neighborCount = 0;
+            // Sum all valid neighbors within 3x3 window
             for (int dr = -1; dr <= 1; dr++) {
                 for (int dc = -1; dc <= 1; dc++) {
                     int nr = row + dr, nc = col + dc;
                     if (nr >= 0 && nr < matrixSize && nc >= 0 && nc < matrixSize) {
-                        sum += *(matrixPtr + nr * matrixSize + nc);
-                        count++;
+                        neighborSum += *(matrixPtr + nr * matrixSize + nc);
+                        neighborCount++;
                     }
                 }
             }
-            *(tempRow + col) = (unsigned short)(sum / count);
+            
+            *(rowBuffer + col) = (unsigned short)((float)neighborSum / neighborCount + 0.5f);
         }
-
-        // Store current smoothed row in previousRow to avoid overwrite effect
+        
         for (int col = 0; col < matrixSize; col++) {
-            *(previousRow + col) = *(tempRow + col);
-        }
-
-        // Update the matrix row after full row computation
-        for (int col = 0; col < matrixSize; col++) {
-            *(matrixPtr + row * matrixSize + col) = *(previousRow + col);
+            *(matrixPtr + row * matrixSize + col) = *(rowBuffer + col);
         }
     }
 
-    free(tempRow);
+    free(rowBuffer);
     free(previousRow);
+    return 1;
 }
 
 int main() {
     int matrixSize;
 
+    
     do {
         printf("Enter matrix size (%d to %d): ", MIN_SIZE, MAX_SIZE);
         scanf("%d", &matrixSize);
@@ -105,7 +98,7 @@ int main() {
 
     unsigned short *matrixPtr = (unsigned short *)malloc(matrixSize * matrixSize * sizeof(unsigned short));
     if (!matrixPtr) {
-        printf("Memory allocation failed.\n");
+        printf("Memory allocation failed for matrix.\n");
         return 1;
     }
 
@@ -117,7 +110,12 @@ int main() {
     rotateMatrix(matrixPtr, matrixSize);
     printMatrix(matrixPtr, matrixSize, "Matrix after 90° Clockwise Rotation:");
 
-    applySmoothing(matrixPtr, matrixSize);
+    if (!applySmoothing(matrixPtr, matrixSize)) {
+        printf("Memory allocation failed during smoothing.\n");
+        free(matrixPtr);
+        return 1;
+    }
+
     printMatrix(matrixPtr, matrixSize, "Matrix after Applying 3x3 Smoothing Filter:");
 
     free(matrixPtr);
