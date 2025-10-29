@@ -1,315 +1,253 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
-// Define max length for product name [cite: 54]
 #define MAX_NAME_LENGTH 50
 
-//structure definition
 typedef struct {
-    int productID;
-    char productName[MAX_NAME_LENGTH + 1]; // 50 chars + 1 null terminator
+    unsigned short productID;             // 1–10000
+    char productName[MAX_NAME_LENGTH + 1];
     float price;
-    int quantity;
+    unsigned int quantity;                // non-negative
 } Product;
 
-int getValidatedInt(const char* prompt, int min, int max) {
+// ----- INPUT HELPERS -----
+int getValidatedInt(const char *prompt, int min, int max) {
     int value;
-    int scan_result;
-    do {
+    while (1) {
         printf("%s (%d-%d): ", prompt, min, max);
-        scan_result = scanf("%d", &value);
-
-        // Clear the input buffer (to catch letters or extra input)
-        while(getchar() != '\n'); 
-        
-        if (scan_result != 1 || value < min || value > max) {
-            printf("Invalid input. Please enter a number between %d and %d.\n", min, max);
+        if (scanf("%d", &value) == 1 && value >= min && value <= max) {
+            while (getchar() != '\n');
+            return value;
         }
-    } while (scan_result != 1 || value < min || value > max);
-    return value;
+        printf("Invalid input. Try again!\n");
+        while (getchar() != '\n');
+    }
 }
 
-float getValidatedFloat(const char* prompt, float min, float max) {
+float getValidatedFloat(const char *prompt, float min, float max) {
     float value;
-    int scan_result;
-    do {
+    while (1) {
         printf("%s (%.0f-%.0f): ", prompt, min, max);
-        scan_result = scanf("%f", &value);
-
-        while(getchar() != '\n');
-        
-        if (scan_result != 1 || value < min || value > max) {
-            printf("Invalid input. Please enter a number between %.0f and %.0f.\n", min, max);
+        if (scanf("%f", &value) == 1 && value >= min && value <= max) {
+            while (getchar() != '\n');
+            return value;
         }
-    } while (scan_result != 1 || value < min || value > max);
-    return value;
+        printf("Invalid input. Try again!\n");
+        while (getchar() != '\n');
+    }
 }
 
-
-
-// Displays the main menu
-void displayMenu() {
-    printf("\n========= INVENTORY MENU =========\n");
-    printf("1. Add New Product\n");
-    printf("2. View All Products\n");
-    printf("3. Update Quantity\n");
-    printf("4. Search Product by ID\n");
-    printf("5. Search Product by Name\n");
-    printf("6. Search Product by Price Range\n");
-    printf("7. Delete Product\n");
-    printf("8. Exit\n");
-    printf("==================================\n");
-    printf("Enter your choice: ");
+int idExists(const Product *inventory, int count, int id) {
+    for (int i = 0; i < count; i++)
+        if (inventory[i].productID == id) return 1;
+    return 0;
 }
 
-// Adds a new product by reallocating memory
+void strToLower(const char *src, char *dst, size_t size) {
+    size_t i;
+    for (i = 0; i + 1 < size && src[i] != '\0'; i++)
+        dst[i] = (char)tolower((unsigned char)src[i]);
+    dst[i] = '\0';
+}
+
+// ----- PRODUCT INPUT -----
+void inputProductRest(Product *p) {
+    printf("Product Name: ");
+    scanf(" %50[^\n]", p->productName);
+    while (getchar() != '\n');
+
+    p->price = getValidatedFloat("Price", 0, 100000);
+    p->quantity = getValidatedInt("Quantity", 0, 1000000);
+}
+
+// ----- ADD PRODUCT -----
 void addProduct(Product **inventory, int *count) {
-    *inventory = (Product*)realloc(*inventory, (*count + 1) * sizeof(Product));
+    int id;
+    do {
+        id = getValidatedInt("Product ID", 1, 10000);
+        if (idExists(*inventory, *count, id))
+            printf("ID exists. Enter unique ID.\n");
+        else break;
+    } while (1);
 
-    if (*inventory == NULL) {
-        printf("Error: Memory allocation failed!\n");
+    Product *temp = realloc(*inventory, (*count + 1) * sizeof(Product));
+    if (!temp) {
+        printf("Memory allocation failed!\n");
         return;
     }
+    *inventory = temp;
 
-    Product *newProduct = &((*inventory)[*count]);
-    int scan_result;
-
-    printf("Enter new product details:\n");
-
-    // Use helpers for validated input
-    newProduct->productID = getValidatedInt("Product ID", 1, 10000); // [cite: 52]
-    
-    // Special validation for string
-    do {
-        printf("Product Name (1-50 chars): "); 
-        scan_result = scanf(" %50[^\n]", newProduct->productName);
-        while(getchar() != '\n');
-        if (scan_result != 1) {
-            printf("Name cannot be empty. Please try again.\n");
-            newProduct->productName[0] = '\0';
-        }
-    } while (scan_result != 1);
-
-    newProduct->price = getValidatedFloat("Product Price", 0, 100000); 
-    newProduct->quantity = getValidatedInt("Product Quantity", 0, 1000000);
-
+    (*inventory)[*count].productID = (unsigned short)id;
+    inputProductRest(&((*inventory)[*count]));
     (*count)++;
+
     printf("Product added successfully!\n");
 }
 
-// Displays all products currently in the inventory
-void viewAllProducts(Product *inventory, int count) {
-    printf("\n========= PRODUCT LIST =========\n");
+// ----- VIEW PRODUCTS -----
+void viewAllProducts(const Product *inventory, int count) {
     if (count == 0) {
-        printf("Inventory is empty.\n");
-    } else {
-        for (int i = 0; i < count; i++) {
-            printf("Product ID: %d | Name: %s | Price: %.2f | Quantity: %d\n",
+        printf("No products in inventory.\n");
+        return;
+    }
+    printf("\n%-10s %-25s %-10s %-10s\n", "ID", "Name", "Price", "Qty");
+    printf("--------------------------------------------------------\n");
+    for (int i = 0; i < count; i++) {
+        printf("%-10d %-25s %-10.2f %-10u\n",
+               inventory[i].productID,
+               inventory[i].productName,
+               inventory[i].price,
+               inventory[i].quantity);
+    }
+}
+
+// ----- SEARCH BY ID -----
+void searchByID(const Product *inventory, int count) {
+    int id = getValidatedInt("Enter Product ID", 1, 10000);
+    for (int i = 0; i < count; i++) {
+        if (inventory[i].productID == id) {
+            printf("Found: %s | Price: %.2f | Qty: %u\n",
+                   inventory[i].productName,
+                   inventory[i].price,
+                   inventory[i].quantity);
+            return;
+        }
+    }
+    printf("Product not found.\n");
+}
+
+// ----- SEARCH BY NAME -----
+void searchByName(const Product *inventory, int count) {
+    char search[MAX_NAME_LENGTH + 1], tempName[MAX_NAME_LENGTH + 1], tempSearch[MAX_NAME_LENGTH + 1];
+    printf("Enter product name: ");
+    scanf(" %50[^\n]", search);
+    while (getchar() != '\n');
+
+    strToLower(search, tempSearch, sizeof(tempSearch));
+
+    int found = 0;
+    for (int i = 0; i < count; i++) {
+        strToLower(inventory[i].productName, tempName, sizeof(tempName));
+        if (strstr(tempName, tempSearch)) {
+            printf("ID:%d | Name:%s | Price:%.2f | Qty:%u\n",
                    inventory[i].productID,
                    inventory[i].productName,
                    inventory[i].price,
                    inventory[i].quantity);
+            found = 1;
         }
     }
-    printf("================================\n");
+    if (!found) printf("No matching product found.\n");
 }
 
-// Finds a product by ID and updates its quantity
+// ----- SEARCH BY PRICE RANGE -----
+void searchByPriceRange(const Product *inventory, int count) {
+    float min = getValidatedFloat("Min price", 0, 100000);
+    float max = getValidatedFloat("Max price", min, 100000);
+    int found = 0;
+    for (int i = 0; i < count; i++) {
+        if (inventory[i].price >= min && inventory[i].price <= max) {
+            printf("ID:%d | %s | Price:%.2f | Qty:%u\n",
+                   inventory[i].productID,
+                   inventory[i].productName,
+                   inventory[i].price,
+                   inventory[i].quantity);
+            found = 1;
+        }
+    }
+    if (!found) printf("No products in this range.\n");
+}
+
+// ----- UPDATE QUANTITY -----
 void updateQuantity(Product *inventory, int count) {
-    int searchID;
-    int found = 0;
-    printf("Enter Product ID to update quantity: ");
-    scanf("%d", &searchID);
-    while(getchar() != '\n');
-
+    int id = getValidatedInt("Enter Product ID to update", 1, 10000);
     for (int i = 0; i < count; i++) {
-        if (inventory[i].productID == searchID) {
-    
-            inventory[i].quantity = getValidatedInt("Enter new Quantity", 0, 1000000);
-            printf("Quantity updated successfully!\n");
-            found = 1;
-            break;
+        if (inventory[i].productID == id) {
+            inventory[i].quantity = getValidatedInt("New Quantity", 0, 1000000);
+            printf("Quantity updated.\n");
+            return;
         }
     }
-    
-    if (!found) {
-        printf("Error: Product with ID %d not found.\n", searchID);
-    }
+    printf("Product not found.\n");
 }
 
-// Finds and displays a single product by its ID
-void searchByID(Product *inventory, int count) {
-    int searchID;
-    int found = 0;
-    printf("Enter Product ID to search: ");
-    scanf("%d", &searchID);
-    while(getchar() != '\n'); 
-
-    for (int i = 0; i < count; i++) {
-        if (inventory[i].productID == searchID) {
-            printf("Product Found:\n");
-            printf("Product ID: %d | Name: %s | Price: %.2f | Quantity: %d\n",
-                   inventory[i].productID,
-                   inventory[i].productName,
-                   inventory[i].price,
-                   inventory[i].quantity);
-            found = 1;
-            break;
-        }
-    }
-
-    if (!found) {
-        printf("Error: Product with ID %d not found.\n", searchID);
-    }
-}
-
-// Finds products by a partial name match (substring)
-void searchByName(Product *inventory, int count) {
-    char searchName[MAX_NAME_LENGTH + 1];
-    int found = 0;
-
-    printf("Enter name to search (partial allowed): ");
-    int scan_result = scanf(" %50[^\n]", searchName);
-    while(getchar() != '\n'); 
-
-    if(scan_result != 1) {
-        printf("No name entered. Aborting search.\n");
-        return;
-    }
-
-    printf("Products Found:\n");
-    for (int i = 0; i < count; i++) {
-        if (strstr(inventory[i].productName, searchName) != NULL) {
-            printf("Product ID: %d | Name: %s | Price: %.2f | Quantity: %d\n",
-                   inventory[i].productID,
-                   inventory[i].productName,
-                   inventory[i].price,
-                   inventory[i].quantity);
-            found = 1;
-        }
-    }
-
-    if (!found) {
-        printf("No products found matching '%s'.\n", searchName);
-    }
-}
-
-// Finds and displays products within a given price range
-void searchByPriceRange(Product *inventory, int count) {
-    float minPrice, maxPrice;
-    int found = 0;
-
-    // Use helpers to get valid price range
-    minPrice = getValidatedFloat("Enter minimum price", 0, 100000); 
-    maxPrice = getValidatedFloat("Enter maximum price", minPrice, 100000); 
-
-    printf("Products in price range (%.2f - %.2f):\n", minPrice, maxPrice);
-
-    for (int i = 0; i < count; i++) {
-        if (inventory[i].price >= minPrice && inventory[i].price <= maxPrice) {
-            printf("Product ID: %d | Name: %s | Price: %.2f | Quantity: %d\n",
-                   inventory[i].productID,
-                   inventory[i].productName,
-                   inventory[i].price,
-                   inventory[i].quantity);
-            found = 1;
-        }
-    }
-
-    if (!found) {
-        printf("No products found in this price range.\n");
-    }
-}
-
-// Deletes a product by ID
+// ----- DELETE PRODUCT -----
 void deleteProduct(Product **inventory, int *count) {
-    int deleteID;
-    printf("Enter Product ID to delete: ");
-    scanf("%d", &deleteID);
-    while(getchar() != '\n');
+    int id = getValidatedInt("Enter Product ID to delete", 1, 10000);
+    int idx = -1;
+    for (int i = 0; i < *count; i++)
+        if ((*inventory)[i].productID == id) { idx = i; break; }
 
-    int foundIndex = -1;
-    for (int i = 0; i < *count; i++) {
-        if ((*inventory)[i].productID == deleteID) {
-            foundIndex = i;
-            break;
-        }
-    }
+    if (idx == -1) { printf("Product not found.\n"); return; }
 
-    if (foundIndex == -1) {
-        printf("Error: Product with ID %d not found.\n", deleteID);
-        return;
-    }
-
-    for (int i = foundIndex; i < *count - 1; i++) {
-        (*inventory)[i] = (*inventory)[i + 1];
-    }
-
-    (*count)--;
-
-    if (*count > 0) {
-        *inventory = (Product*)realloc(*inventory, (*count) * sizeof(Product));
-    } else {
+    int newCount = *count - 1;
+    if (newCount == 0) {
         free(*inventory);
         *inventory = NULL;
+    } else {
+        Product *temp = malloc(newCount * sizeof(Product));
+        if (!temp) { printf("Memory error.\n"); return; }
+        for (int i = 0, j = 0; i < *count; i++)
+            if (i != idx) temp[j++] = (*inventory)[i];
+        free(*inventory);
+        *inventory = temp;
     }
-    
+    *count = newCount;
     printf("Product deleted successfully!\n");
 }
 
+// ----- MENU -----
+void displayMenu() {
+    printf("\n========= INVENTORY MENU =========\n"
+           "1. Add Product\n"
+           "2. View Products\n"
+           "3. Update Quantity\n"
+           "4. Search by ID\n"
+           "5. Search by Name\n"
+           "6. Search by Price Range\n"
+           "7. Delete Product\n"
+           "8. Exit\n"
+           "==================================\n"
+           "Enter choice: ");
+}
 
-// --- Main Function ---
-
+// ----- MAIN -----
 int main() {
     Product *inventory = NULL;
     int productCount = 0;
-    int initialCount = 0;
-    int choice = 0;
+    int initial = getValidatedInt("Enter number of initial products", 1, 50);
 
-    // 1. Get initial number of products (with validation)
-    initialCount = getValidatedInt("Enter initial number of products", 1, 100); // [cite: 51]
-    productCount = initialCount;
-
-    // 2. Allocate initial memory using calloc
-    inventory = (Product*)calloc(initialCount, sizeof(Product));
-    if (inventory == NULL) {
-        printf("Initial memory allocation failed!\n");
+    inventory = calloc(initial, sizeof(Product));
+    if (!inventory) {
+        printf("Memory allocation failed.\n");
         return 1;
     }
 
-    // 3. Get details for the initial products (with validation)
-    for (int i = 0; i < productCount; i++) {
-        printf("Enter details for product %d:\n", i + 1);
-        int scan_result;
-        
-        inventory[i].productID = getValidatedInt("Product ID", 1, 10000); // [cite: 52]
-
+    for (int i = 0; i < initial; i++) {
+        printf("\nEnter details for product %d:\n", i + 1);
+        int id;
         do {
-            printf("Product Name (1-50 chars): "); // [cite: 54]
-            scan_result = scanf(" %50[^\n]", inventory[i].productName);
-            while(getchar() != '\n');
-            if (scan_result != 1) {
-                printf("Name cannot be empty. Please try again.\n");
-                inventory[i].productName[0] = '\0';
-            }
-        } while (scan_result != 1);
-
-        inventory[i].price = getValidatedFloat("Product Price", 0, 100000); // [cite: 55]
-        inventory[i].quantity = getValidatedInt("Product Quantity", 0, 1000000); // [cite: 56]
+            id = getValidatedInt("Product ID", 1, 10000);
+            if (idExists(inventory, productCount, id))
+                printf("Duplicate ID! Try again.\n");
+            else break;
+        } while (1);
+        inventory[i].productID = (unsigned short)id;
+        inputProductRest(&inventory[i]);
+        productCount++;
     }
 
-    // 4. Main menu loop
+    int choice;
     do {
         displayMenu();
-        
-        // Get user choice for menu
-        int scan_result = scanf("%d", &choice);
-        while(getchar() != '\n'); // Clear buffer
-
-        if (scan_result != 1) {
-            choice = -1; // Set to invalid choice
+        if (scanf("%d", &choice) != 1) {
+            printf("Invalid choice.\n");
+            while (getchar() != '\n');
+            continue;
         }
+        while (getchar() != '\n');
 
         switch (choice) {
             case 1: addProduct(&inventory, &productCount); break;
@@ -319,15 +257,11 @@ int main() {
             case 5: searchByName(inventory, productCount); break;
             case 6: searchByPriceRange(inventory, productCount); break;
             case 7: deleteProduct(&inventory, &productCount); break;
-            case 8:
-                free(inventory);
-                printf("Memory released successfully. Exiting program...\n");
-                break;
-            default:
-                printf("Invalid choice. Please enter a number from 1 to 8.\n");
+            case 8: printf("Exiting...\n"); break;
+            default: printf("Invalid choice.\n");
         }
-
     } while (choice != 8);
 
+    free(inventory);
     return 0;
 }
