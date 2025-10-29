@@ -5,6 +5,7 @@
 
 #define MAX_NAME_LENGTH 50
 
+// ----- STRUCT -----
 typedef struct {
     unsigned short productID;             // 1–10000
     char productName[MAX_NAME_LENGTH + 1];
@@ -39,6 +40,7 @@ float getValidatedFloat(const char *prompt, float min, float max) {
     }
 }
 
+// ----- UTILITIES -----
 int idExists(const Product *inventory, int count, int id) {
     for (int i = 0; i < count; i++)
         if (inventory[i].productID == id) return 1;
@@ -54,7 +56,7 @@ void strToLower(const char *src, char *dst, size_t size) {
 
 // ----- PRODUCT INPUT -----
 void inputProductRest(Product *p) {
-    printf("Product Name: ");
+    printf("Product Name (1-50 chars): ");
     scanf(" %50[^\n]", p->productName);
     while (getchar() != '\n');
 
@@ -92,15 +94,22 @@ void viewAllProducts(const Product *inventory, int count) {
         printf("No products in inventory.\n");
         return;
     }
-    printf("\n%-10s %-25s %-10s %-10s\n", "ID", "Name", "Price", "Qty");
-    printf("--------------------------------------------------------\n");
-    for (int i = 0; i < count; i++) {
-        printf("%-10d %-25s %-10.2f %-10u\n",
-               inventory[i].productID,
-               inventory[i].productName,
-               inventory[i].price,
-               inventory[i].quantity);
-    }
+    printf("\n========= PRODUCT LIST =========\n");
+for (int i = 0; i < count; i++) {
+    printf("Product ID: %d | Name: %s | Price: %.2f | Quantity: %u\n",
+           inventory[i].productID,
+           inventory[i].productName,
+           inventory[i].price,
+           inventory[i].quantity);
+}
+printf("\n========= PRODUCT LIST =========\n");
+for (int i = 0; i < count; i++) {
+    printf("Product ID: %d | Name: %s | Price: %.2f | Quantity: %u\n",
+           inventory[i].productID,
+           inventory[i].productName,
+           inventory[i].price,
+           inventory[i].quantity);
+}
 }
 
 // ----- SEARCH BY ID -----
@@ -118,7 +127,7 @@ void searchByID(const Product *inventory, int count) {
     printf("Product not found.\n");
 }
 
-// ----- SEARCH BY NAME -----
+// ----- SEARCH BY NAME (case-insensitive) -----
 void searchByName(const Product *inventory, int count) {
     char search[MAX_NAME_LENGTH + 1], tempName[MAX_NAME_LENGTH + 1], tempSearch[MAX_NAME_LENGTH + 1];
     printf("Enter product name: ");
@@ -217,7 +226,7 @@ void displayMenu() {
 int main() {
     Product *inventory = NULL;
     int productCount = 0;
-    int initial = getValidatedInt("Enter number of initial products", 1, 50);
+    int initial = getValidatedInt("Enter number of initial products", 1, 100);
 
     inventory = calloc(initial, sizeof(Product));
     if (!inventory) {
