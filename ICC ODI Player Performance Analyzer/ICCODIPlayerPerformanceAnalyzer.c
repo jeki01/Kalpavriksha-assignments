@@ -1,23 +1,30 @@
-
-#include <limits.h>
+// ICCODIPlayerPerformanceAnalyzer.c
 #include <stdio.h>
-#include <ctype.h>
-#include <string.h>
-#include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <stdbool.h>
+#include <limits.h>
 #include <math.h>
-#include "Players_data.h"   
+#include "Players_data.h"   // must provide players[], playerCount, teams[], teamCount
 
+/* ---------------------- MACROS ---------------------- */
+#define MAX_NAME_LEN 50
 #define MAX_TEAMS 10
+#define MAX_HEAP_SIZE 512   /* safe upper bound for temporary heaps */
 
-/* --- Data structures --- */
+/* ---------------------- ENUMS & TYPES ---------------------- */
+typedef enum {
+    ROLE_BATSMAN = 1,
+    ROLE_BOWLER  = 2,
+    ROLE_ALL_ROUNDER = 3
+} RoleType;
 
-typedef struct PlayerData
-{
+typedef struct PlayerData {
     int playerId;
-    char name[50];
-    char teamName[50];
-    char role[50];
+    char name[MAX_NAME_LEN];
+    char teamName[MAX_NAME_LEN];
+    RoleType role;
     int totalRuns;
     float battingAverage;
     float strikeRate;
@@ -26,28 +33,25 @@ typedef struct PlayerData
     int performanceIndex;
 } PlayerData;
 
-typedef struct PlayerNode
-{
+/* Each RoleNode owns the PlayerData (no duplication). */
+typedef struct RoleNode {
     PlayerData data;
-    struct PlayerNode *next;  
-} PlayerNode;
-
-/* Role wrapper nodes */
-typedef struct RoleNode
-{
-    PlayerNode *player;        
-    struct RoleNode *next;     
+    struct RoleNode *next;
 } RoleNode;
 
-typedef struct TeamData
-{
+typedef struct TeamData {
     int teamId;
-    char teamName[50];
-    int totalPlayers;
-    float averageBattingStrikeRate;
-    PlayerNode *playersList;   
+    char teamName[MAX_NAME_LEN];
 
-    RoleNode *batsman;         
+    int totalPlayers;
+
+    /* Maintain cumulative strike rate (batters + all-rounders) for O(1) updates */
+    float cumulativeStrikeRate;
+    int strikeRatePlayersCount;
+    float averageBattingStrikeRate;
+
+    /* Three role lists (sorted descending by performanceIndex) */
+    RoleNode *batsman;
     int totalBatsman;
 
     RoleNode *bowlers;
@@ -57,74 +61,72 @@ typedef struct TeamData
     int totalAllRounders;
 } TeamData;
 
-/* Team index for O(log t) search */
-typedef struct TeamIndex {
-    char name[50];
+/* Index structures for O(log t) lookups */
+typedef struct TeamIndexById {
+    int teamId;
+    int idx; /* index in teamsData[] */
+} TeamIndexById;
+
+typedef struct TeamIndexByName {
+    char name[MAX_NAME_LEN];
     int idx;
-} TeamIndex;
+} TeamIndexByName;
 
-TeamIndex teamIndexArr[MAX_TEAMS];
-int teamIndexCount = 0;
+/* Global indices */
+TeamIndexById teamIdIndex[MAX_TEAMS];
+int teamIdIndexCount = 0;
+TeamIndexByName teamNameIndex[MAX_TEAMS];
+int teamNameIndexCount = 0;
 
-/* --- Prototypes --- */
-/* initialization & load */
+/* ---------------------- FUNCTION PROTOTYPES ---------------------- */
+/* init / load */
 void initialiseTeamsData(TeamData teamsData[]);
-int findTeamIndex(const char teamName[]);
-int teamIndexCompare(const void *a, const void *b);
-int computePerformanceIndex(PlayerData playerData);
-PlayerNode* insertPlayerToMainList(PlayerNode **head, PlayerData playerData);
-void insertPlayerIntoRoleList(RoleNode **head, PlayerNode *player);
+int findTeamIndexByName(const char teamName[]);
+int findTeamIndexById(int teamId);
+int compareTeamNameIndex(const void *a, const void *b);
+int compareTeamIdIndex(const void *a, const void *b);
+int computePerformanceIndex(const PlayerData *p);
 void loadInitialPlayers(TeamData teamsData[]);
 
-/* menu & input helpers */
+/* role list insertion (maintain sorted by performanceIndex desc) */
+void insertIntoRoleList(RoleNode **head, PlayerData pdata);
+
+/* printing and display */
 void printMenu(void);
-bool validChoice(int choice);
-void clearInputBuffer(void);
-bool isEmptyorSpaces(const char input[]);
-bool isNumber(const char input[]);
-bool inputValidation(char input[], int inputSize);
-bool inputNameValidation(char input[], int inputSize);
-bool isFloatNumber(const char *input);
-bool inputFloatValidation(char input[], int inputSize);
-
-int getValidatedInt(const char *prompt, int minVal, int maxVal);
-float getValidatedFloat(const char *prompt);
-void getValidatedName(char *out, int outSize);
-int getValidatedRole(void);
-int getValidatedTeamID(void);
-
-/* operations */
-void addNewPlayers(TeamData teamsData[]);
-bool isDuplicatePlayerID(TeamData teamsData[], int playerID);
-void recalculateTeamAvgStrikeRate(TeamData *team);
-
-void displayPlayerOFTeam(TeamData teamsData[], int teamID);
-void printNodes(PlayerNode *head);
 void printPlayerTableHeader(void);
-
+void printRoleTableHeader(void);
+void displayPlayerOfTeam(TeamData teamsData[], int teamID);
 void displayTeamsByAvgBattingSR(TeamData teamsData[]);
-void sortTeamsByStrikeRate(TeamData out[], int n);
-
 void displayTopKPlayers(TeamData teamsData[]);
-
 void displayPlayersAccordingToRole(TeamData teamsData[]);
+
+/* heap (RoleNode* heap used for k-way merge) */
 void heapifyDown(RoleNode **heap, int size, int index);
 void buildMaxHeap(RoleNode **heap, int size);
 RoleNode* extractMaxRole(RoleNode **heap, int *size);
 
-/* free */
+/* helpers & input validation */
+bool isEmptyorSpaces(const char *input);
+bool isNumber(const char *input);
+bool inputValidation(char input[], int inputSize);
+bool isFloatNumber(const char *input);
+bool inputFloatValidation(char input[], int inputSize);
+bool inputNameValidation(char input[], int inputSize);
+
+int getValidatedInt(const char *prompt, int minVal, int maxVal);
+float getValidatedFloat(const char *prompt);
+void getValidatedName(char *out, int outSize);
+RoleType getValidatedRole(void);
+
+/* misc operations */
+bool isDuplicatePlayerID(TeamData teamsData[], int playerID);
+void recalculateTeamAvgStrikeRate_O1_onInsert(TeamData *team, const PlayerData *p);
 void freeRoleList(RoleNode *head);
-void freeLinkedList(PlayerNode *head);
 void freeAllMemory(TeamData teamsData[]);
 
-/* role helpers */
-RoleNode** getRoleHeadPtr(TeamData *team, int role);
-int getRoleCount(TeamData *team, int role);
-const char* getRoleName(int role);
+/* ---------------------- IMPLEMENTATION ---------------------- */
 
-/* --- Implementation --- */
-
-void printMenu()
+void printMenu(void)
 {
     printf(" ==============================================================================\n");
     printf(" ICC ODI Player Performance Analyzer\n");
@@ -138,54 +140,39 @@ void printMenu()
     printf(" ==============================================================================\n");
 }
 
-bool validChoice(int choice)
+bool isEmptyorSpaces(const char *input)
 {
-    return (choice >= 1 && choice <= 6);
-}
-
-void clearInputBuffer(void)
-{
-    int c;
-    while ((c = getchar()) != '\n' && c != EOF);
-}
-
-bool isEmptyorSpaces(const char input[])
-{
-    if (input[0] == '\0') return true;
-    for (int i = 0; input[i] != '\0'; ++i)
-    {
+    if (!input || input[0] == '\0') return true;
+    for (int i = 0; input[i]; ++i) {
         if (!isspace((unsigned char)input[i])) return false;
     }
     return true;
 }
 
-bool isNumber(const char input[])
+bool isNumber(const char *input)
 {
-    int index = 0;
-    while (input[index] && isspace((unsigned char)input[index])) index++;
-    if (input[index] && !isdigit((unsigned char)input[index])) return false;
-    while (input[index] && isdigit((unsigned char)input[index])) index++;
-    while (input[index] && isspace((unsigned char)input[index])) index++;
-    return input[index] == '\0';
+    int idx = 0;
+    while (input[idx] && isspace((unsigned char)input[idx])) idx++;
+    if (input[idx] && !isdigit((unsigned char)input[idx])) return false;
+    while (input[idx] && isdigit((unsigned char)input[idx])) idx++;
+    while (input[idx] && isspace((unsigned char)input[idx])) idx++;
+    return input[idx] == '\0';
 }
 
 bool inputValidation(char input[], int inputSize)
 {
-    while (1)
-    {
-        if (fgets(input, inputSize, stdin) == NULL)
-        {
-            printf("Input error!\nEnter again : ");
+    while (1) {
+        if (fgets(input, inputSize, stdin) == NULL) {
+            printf("Input error! Enter again : ");
             continue;
         }
+        input[inputSize - 1] = '\0';             /* ensure termination */
         input[strcspn(input, "\n")] = '\0';
-        if (isEmptyorSpaces(input))
-        {
+        if (isEmptyorSpaces(input)) {
             printf("Input cannot be empty!\nEnter again : ");
             continue;
         }
-        if (!isNumber(input))
-        {
+        if (!isNumber(input)) {
             printf("Invalid input! Enter a valid number \nEnter again : ");
             continue;
         }
@@ -193,56 +180,24 @@ bool inputValidation(char input[], int inputSize)
     }
 }
 
-bool inputNameValidation(char input[], int inputSize)
-{
-    if (fgets(input, inputSize, stdin) == NULL) return false;
-    input[strcspn(input, "\n")] = '\0';
-    if (isEmptyorSpaces(input))
-    {
-        printf("Name cannot be empty!\n");
-        return false;
-    }
-    int i = 0;
-    while (input[i] && isspace((unsigned char)input[i])) i++;
-    while (input[i] && input[i] != '\0')
-    {
-        char c = input[i];
-        if (!isalpha((unsigned char)c) && !isspace((unsigned char)c))
-        {
-            printf("Invalid name! Only alphabets and spaces allowed.\n");
-            return false;
-        }
-        i++;
-    }
-    return true;
-}
-
 bool isFloatNumber(const char *input)
 {
-    int index = 0;
-    bool hasDecimal = false;
-    bool hasDigit = false;
-    while (input[index] && isspace((unsigned char)input[index])) index++;
-    if (input[index] != '.' && !isdigit((unsigned char)input[index])) return false;
-    while (input[index])
-    {
-        if (isdigit((unsigned char)input[index])) hasDigit = true;
-        else if (input[index] == '.')
-        {
+    int idx = 0; bool hasDecimal = false; bool hasDigit = false;
+    while (input[idx] && isspace((unsigned char)input[idx])) idx++;
+    if (input[idx] != '.' && !isdigit((unsigned char)input[idx])) return false;
+    while (input[idx]) {
+        if (isdigit((unsigned char)input[idx])) hasDigit = true;
+        else if (input[idx] == '.') {
             if (hasDecimal) return false;
             hasDecimal = true;
-        }
-        else if (isspace((unsigned char)input[index]))
-        {
-            while (input[index])
-            {
-                if (!isspace((unsigned char)input[index])) return false;
-                index++;
+        } else if (isspace((unsigned char)input[idx])) {
+            while (input[idx]) {
+                if (!isspace((unsigned char)input[idx])) return false;
+                idx++;
             }
             break;
-        }
-        else return false;
-        index++;
+        } else return false;
+        idx++;
     }
     return hasDigit;
 }
@@ -250,37 +205,50 @@ bool isFloatNumber(const char *input)
 bool inputFloatValidation(char input[], int inputSize)
 {
     if (fgets(input, inputSize, stdin) == NULL) return false;
+    input[inputSize - 1] = '\0';
     input[strcspn(input, "\n")] = '\0';
-    if (isEmptyorSpaces(input))
-    {
+    if (isEmptyorSpaces(input)) {
         printf("Input cannot be empty!\n");
         return false;
     }
-    if (!isFloatNumber(input))
-    {
+    if (!isFloatNumber(input)) {
         printf("Invalid input! Enter a valid decimal number.\n");
         return false;
     }
     return true;
 }
 
-/* ---------- Helpers for validated prompts (DRY) ---------- */
+bool inputNameValidation(char input[], int inputSize)
+{
+    if (fgets(input, inputSize, stdin) == NULL) return false;
+    input[inputSize - 1] = '\0';
+    input[strcspn(input, "\n")] = '\0';
+    if (isEmptyorSpaces(input)) {
+        printf("Name cannot be empty!\n");
+        return false;
+    }
+    int i = 0;
+    while (input[i] && isspace((unsigned char)input[i])) i++;
+    for (; input[i]; ++i) {
+        if (!isalpha((unsigned char)input[i]) && !isspace((unsigned char)input[i])) {
+            printf("Invalid name! Only alphabets and spaces allowed.\n");
+            return false;
+        }
+    }
+    return true;
+}
 
+/* Reusable prompt helpers */
 int getValidatedInt(const char *prompt, int minVal, int maxVal)
 {
     char buf[64];
     int val;
-    while (1)
-    {
+    while (1) {
         if (prompt) printf("%s", prompt);
         if (!inputValidation(buf, sizeof(buf))) continue;
         val = atoi(buf);
-        if ((minVal != INT_MIN && val < minVal) || (maxVal != INT_MAX && val > maxVal))
-        {
-            if (minVal != INT_MIN || maxVal != INT_MAX)
-                printf("Value must be between %d and %d. Try again.\n", minVal, maxVal);
-            else
-                printf("Invalid value. Try again.\n");
+        if (val < minVal || val > maxVal) {
+            printf("Value must be between %d and %d. Try again.\n", minVal, maxVal);
             continue;
         }
         return val;
@@ -291,8 +259,7 @@ float getValidatedFloat(const char *prompt)
 {
     char buf[64];
     float val;
-    while (1)
-    {
+    while (1) {
         if (prompt) printf("%s", prompt);
         if (!inputFloatValidation(buf, sizeof(buf))) continue;
         val = atof(buf);
@@ -302,217 +269,187 @@ float getValidatedFloat(const char *prompt)
 
 void getValidatedName(char *out, int outSize)
 {
-    while (1)
-    {
+    while (1) {
         if (fgets(out, outSize, stdin) == NULL) { printf("Input error\n"); continue; }
+        out[outSize - 1] = '\0';
         out[strcspn(out, "\n")] = '\0';
         if (isEmptyorSpaces(out)) { printf("Name cannot be empty! Enter again: "); continue; }
         int i = 0;
         while (out[i] && isspace((unsigned char)out[i])) i++;
         bool ok = true;
-        for (; out[i]; ++i)
-        {
-            char c = out[i];
-            if (!isalpha((unsigned char)c) && !isspace((unsigned char)c)) { ok = false; break; }
+        for (; out[i]; ++i) {
+            if (!isalpha((unsigned char)out[i]) && !isspace((unsigned char)out[i])) { ok = false; break; }
         }
         if (!ok) { printf("Invalid name! Only alphabets and spaces allowed. Enter again: "); continue; }
         return;
     }
 }
 
-int getValidatedRole(void)
+RoleType getValidatedRole(void)
 {
-    while (1)
-    {
+    while (1) {
         int r = getValidatedInt("Role (1-Batsman, 2-Bowler, 3-All-rounder): ", 1, 3);
-        return r;
+        if (r == 1) return ROLE_BATSMAN;
+        if (r == 2) return ROLE_BOWLER;
+        return ROLE_ALL_ROUNDER;
     }
 }
 
-int getValidatedTeamID(void)
+/* -------- team index helpers for O(log t) ---------- */
+int compareTeamNameIndex(const void *a, const void *b)
 {
-    while (1)
-    {
-        int tid = getValidatedInt("Enter Team ID: ", 1, teamCount);
-        return tid;
-    }
-}
-
-/* ---------- Team index for O(log t) ---------- */
-
-int teamIndexCompare(const void *a, const void *b)
-{
-    const TeamIndex *A = a;
-    const TeamIndex *B = b;
+    const TeamIndexByName *A = a;
+    const TeamIndexByName *B = b;
     return strcmp(A->name, B->name);
 }
-
-int findTeamIndex(const char teamName[])
+int compareTeamIdIndex(const void *a, const void *b)
 {
-    int lo = 0, hi = teamIndexCount - 1;
-    while (lo <= hi)
-    {
+    const TeamIndexById *A = a;
+    const TeamIndexById *B = b;
+    if (A->teamId < B->teamId) return -1;
+    if (A->teamId > B->teamId) return 1;
+    return 0;
+}
+
+int findTeamIndexByName(const char teamName[])
+{
+    int lo = 0, hi = teamNameIndexCount - 1;
+    while (lo <= hi) {
         int mid = lo + (hi - lo) / 2;
-        int cmp = strcmp(teamIndexArr[mid].name, teamName);
-        if (cmp == 0) return teamIndexArr[mid].idx;
-        if (cmp < 0) lo = mid + 1;
-        else hi = mid - 1;
+        int cmp = strcmp(teamNameIndex[mid].name, teamName);
+        if (cmp == 0) return teamNameIndex[mid].idx;
+        if (cmp < 0) lo = mid + 1; else hi = mid - 1;
     }
     return -1;
 }
 
-/* ---------- Performance computation ---------- */
-
-int computePerformanceIndex(PlayerData playerData)
+int findTeamIndexById(int teamId)
 {
-    float performance_index = 0.0f;
-
-    if (strcmp(playerData.role, "Batsman") == 0)
-    {
-        performance_index = (playerData.battingAverage * playerData.strikeRate) / 100.0f;
+    int lo = 0, hi = teamIdIndexCount - 1;
+    while (lo <= hi) {
+        int mid = lo + (hi - lo) / 2;
+        if (teamIdIndex[mid].teamId == teamId) return teamIdIndex[mid].idx;
+        if (teamIdIndex[mid].teamId < teamId) lo = mid + 1; else hi = mid - 1;
     }
-    else if (strcmp(playerData.role, "Bowler") == 0)
-    {
-        performance_index = (playerData.wickets * 2.0f) + (100.0f - playerData.economyRate);
-    }
-    else
-    {
-        performance_index = ((playerData.battingAverage * playerData.strikeRate) / 100.0f) + (playerData.wickets * 2.0f);
-    }
-
-    if (performance_index < 0) performance_index = 0;
-    return (int)performance_index;
+    return -1;
 }
 
-/* ---------- Insert main node (returns pointer to created node) ---------- */
-
-PlayerNode* insertPlayerToMainList(PlayerNode **head, PlayerData playerData)
+/* Compute performance index as integer */
+int computePerformanceIndex(const PlayerData *p)
 {
-    PlayerNode *newPlayer = malloc(sizeof(PlayerNode));
-    if (newPlayer == NULL)
-    {
-        printf("Memory allocation failed\n");
-        return NULL;
+    float perf = 0.0f;
+    if (p->role == ROLE_BATSMAN) {
+        perf = (p->battingAverage * p->strikeRate) / 100.0f;
+    } else if (p->role == ROLE_BOWLER) {
+        perf = (p->wickets * 2.0f) + (100.0f - p->economyRate);
+    } else {
+        perf = ((p->battingAverage * p->strikeRate) / 100.0f) + (p->wickets * 2.0f);
     }
-    newPlayer->data = playerData;
-    newPlayer->next = NULL;
-
-    if (*head == NULL)
-    {
-        *head = newPlayer;
-        return newPlayer;
-    }
-
-    PlayerNode *cur = *head;
-    while (cur->next != NULL) cur = cur->next;
-    cur->next = newPlayer;
-    return newPlayer;
+    if (perf < 0) perf = 0;
+    return (int)perf;
 }
 
-/* ---------- Insert wrapper into role list (sorted descending by performanceIndex) ---------- */
-
-void insertPlayerIntoRoleList(RoleNode **head, PlayerNode *player)
+/* Insert into role list keeping descending performanceIndex order */
+void insertIntoRoleList(RoleNode **head, PlayerData pdata)
 {
-    if (player == NULL) return;
-    RoleNode *newRole = malloc(sizeof(RoleNode));
-    if (newRole == NULL)
-    {
-        printf("Memory allocation failed for role node\n");
+    RoleNode *newNode = malloc(sizeof(RoleNode));
+    if (!newNode) { printf("Memory allocation failed\n"); return; }
+    newNode->data = pdata;
+    newNode->next = NULL;
+
+    if (*head == NULL || pdata.performanceIndex > (*head)->data.performanceIndex) {
+        newNode->next = *head;
+        *head = newNode;
         return;
     }
-    newRole->player = player;
-    newRole->next = NULL;
-
-    if (*head == NULL || player->data.performanceIndex > (*head)->player->data.performanceIndex)
-    {
-        newRole->next = *head;
-        *head = newRole;
-        return;
-    }
-
     RoleNode *cur = *head;
-    while (cur->next != NULL && cur->next->player->data.performanceIndex > player->data.performanceIndex)
-        cur = cur->next;
-
-    newRole->next = cur->next;
-    cur->next = newRole;
+    while (cur->next != NULL && cur->next->data.performanceIndex > pdata.performanceIndex) cur = cur->next;
+    newNode->next = cur->next;
+    cur->next = newNode;
 }
 
-/* ---------- initialise and load players ---------- */
-
+/* Initialise teams and build indices */
 void initialiseTeamsData(TeamData teamsData[])
 {
-    for (int i = 0; i < teamCount; ++i)
-    {
-        teamsData[i].teamId = i + 1;
-        strcpy(teamsData[i].teamName, teams[i]);
+    for (int i = 0; i < teamCount && i < MAX_TEAMS; ++i) {
+        teamsData[i].teamId = i + 1; /* initial id; we'll maintain index by id separately if header differs */
+        strncpy(teamsData[i].teamName, teams[i], MAX_NAME_LEN-1);
+        teamsData[i].teamName[MAX_NAME_LEN-1] = '\0';
         teamsData[i].totalPlayers = 0;
+        teamsData[i].cumulativeStrikeRate = 0.0f;
+        teamsData[i].strikeRatePlayersCount = 0;
         teamsData[i].averageBattingStrikeRate = 0.0f;
-        teamsData[i].playersList = NULL;
-        teamsData[i].batsman = NULL;
-        teamsData[i].totalBatsman = 0;
-        teamsData[i].bowlers = NULL;
-        teamsData[i].totalBowlers = 0;
-        teamsData[i].allRounders = NULL;
-        teamsData[i].totalAllRounders = 0;
+        teamsData[i].batsman = NULL; teamsData[i].totalBatsman = 0;
+        teamsData[i].bowlers = NULL; teamsData[i].totalBowlers = 0;
+        teamsData[i].allRounders = NULL; teamsData[i].totalAllRounders = 0;
     }
 
-    /* build team index for O(log t) search */
-    teamIndexCount = teamCount < MAX_TEAMS ? teamCount : MAX_TEAMS;
-    for (int i = 0; i < teamIndexCount; ++i)
-    {
-        strncpy(teamIndexArr[i].name, teams[i], sizeof(teamIndexArr[i].name) - 1);
-        teamIndexArr[i].name[sizeof(teamIndexArr[i].name) - 1] = '\0';
-        teamIndexArr[i].idx = i;
+    /* Build name index for binary search (teamName -> index) */
+    teamNameIndexCount = teamCount < MAX_TEAMS ? teamCount : MAX_TEAMS;
+    for (int i = 0; i < teamNameIndexCount; ++i) {
+        strncpy(teamNameIndex[i].name, teams[i], MAX_NAME_LEN-1);
+        teamNameIndex[i].name[MAX_NAME_LEN-1] = '\0';
+        teamNameIndex[i].idx = i;
     }
-    qsort(teamIndexArr, teamIndexCount, sizeof(TeamIndex), teamIndexCompare);
+    qsort(teamNameIndex, teamNameIndexCount, sizeof(TeamIndexByName), compareTeamNameIndex);
+
+    /* Build id index: assume team ids are 1..teamCount by default; if Players_data.h contains different IDs,
+       you should fill teamIdIndex accordingly. We'll map teamId = (i+1) -> index i for now */
+    teamIdIndexCount = teamCount < MAX_TEAMS ? teamCount : MAX_TEAMS;
+    for (int i = 0; i < teamIdIndexCount; ++i) {
+        teamIdIndex[i].teamId = i + 1;
+        teamIdIndex[i].idx = i;
+    }
+    qsort(teamIdIndex, teamIdIndexCount, sizeof(TeamIndexById), compareTeamIdIndex);
 }
 
+/* Load initial players from Players_data.h into role lists */
 void loadInitialPlayers(TeamData teamsData[])
 {
-    for (int i = 0; i < playerCount; ++i)
-    {
-        Player headerPlayer = players[i];
+    for (int i = 0; i < playerCount; ++i) {
+        Player hdr = players[i]; /* type from header */
         PlayerData pd;
-        pd.playerId = headerPlayer.id;
-        strcpy(pd.name, headerPlayer.name);
-        strcpy(pd.teamName, headerPlayer.team);
-        strcpy(pd.role, headerPlayer.role);
-        pd.totalRuns = headerPlayer.totalRuns;
-        pd.battingAverage = headerPlayer.battingAverage;
-        pd.strikeRate = headerPlayer.strikeRate;
-        pd.wickets = headerPlayer.wickets;
-        pd.economyRate = headerPlayer.economyRate;
-        pd.performanceIndex = computePerformanceIndex(pd);
+        pd.playerId = hdr.id;
+        strncpy(pd.name, hdr.name, MAX_NAME_LEN-1); pd.name[MAX_NAME_LEN-1] = '\0';
+        strncpy(pd.teamName, hdr.team, MAX_NAME_LEN-1); pd.teamName[MAX_NAME_LEN-1] = '\0';
+        /* map hdr.role (string) to enum */
+        if (strcmp(hdr.role, "Batsman") == 0) pd.role = ROLE_BATSMAN;
+        else if (strcmp(hdr.role, "Bowler") == 0) pd.role = ROLE_BOWLER;
+        else pd.role = ROLE_ALL_ROUNDER;
+        pd.totalRuns = hdr.totalRuns;
+        pd.battingAverage = hdr.battingAverage;
+        pd.strikeRate = hdr.strikeRate;
+        pd.wickets = hdr.wickets;
+        pd.economyRate = hdr.economyRate;
+        pd.performanceIndex = computePerformanceIndex(&pd);
 
-        int tindex = findTeamIndex(pd.teamName);
-        if (tindex == -1) continue;
-        TeamData *team = &teamsData[tindex];
+        int tIndex = findTeamIndexByName(pd.teamName);
+        if (tIndex == -1) continue;
+
+        TeamData *team = &teamsData[tIndex];
         team->totalPlayers++;
-        PlayerNode *mainNode = insertPlayerToMainList(&team->playersList, pd);
 
-        if (strcmp(pd.role, "Batsman") == 0)
-        {
-            insertPlayerIntoRoleList(&team->batsman, mainNode);
+        if (pd.role == ROLE_BATSMAN) {
+            insertIntoRoleList(&team->batsman, pd);
             team->totalBatsman++;
-        }
-        else if (strcmp(pd.role, "Bowler") == 0)
-        {
-            insertPlayerIntoRoleList(&team->bowlers, mainNode);
+            team->cumulativeStrikeRate += pd.strikeRate;
+            team->strikeRatePlayersCount++;
+        } else if (pd.role == ROLE_BOWLER) {
+            insertIntoRoleList(&team->bowlers, pd);
             team->totalBowlers++;
-        }
-        else
-        {
-            insertPlayerIntoRoleList(&team->allRounders, mainNode);
+        } else {
+            insertIntoRoleList(&team->allRounders, pd);
             team->totalAllRounders++;
+            team->cumulativeStrikeRate += pd.strikeRate;
+            team->strikeRatePlayersCount++;
         }
+        if (team->strikeRatePlayersCount > 0)
+            team->averageBattingStrikeRate = team->cumulativeStrikeRate / team->strikeRatePlayersCount;
+        else team->averageBattingStrikeRate = 0.0f;
     }
-
-    for (int i = 0; i < teamCount; ++i) recalculateTeamAvgStrikeRate(&teamsData[i]);
 }
 
-/* ---------- Display team players (main list) ---------- */
-
+/* Print headers (kept same as original) */
 void printPlayerTableHeader(void)
 {
     printf(" ====================================================================================\n");
@@ -521,54 +458,56 @@ void printPlayerTableHeader(void)
     printf(" ====================================================================================\n");
 }
 
-void displayPlayerOFTeam(TeamData teamsData[], int teamID)
+/* Display all players of a team (prints batsmen, bowlers, all-rounders sequentially)
+   This preserves the previous column formatting. */
+void displayPlayerOfTeam(TeamData teamsData[], int teamID)
 {
-    if (teamID < 1 || teamID > teamCount)
-    {
+    int idx = findTeamIndexById(teamID);
+    if (idx == -1) {
         printf("Invalid Team ID!\n");
         return;
     }
-    int idx = teamID - 1;
-    printf("Players of Team %s: \n", teamsData[idx].teamName);
+    TeamData *team = &teamsData[idx];
+    printf("Players of Team %s: \n", team->teamName);
     printPlayerTableHeader();
-    printNodes(teamsData[idx].playersList);
-    printf(" ====================================================================================\n");
-    printf("Total Player: %d\n", teamsData[idx].totalPlayers);
-    printf("Average Batting Strike Rate: %f\n", teamsData[idx].averageBattingStrikeRate);
-}
 
-void printNodes(PlayerNode *head)
-{
-    PlayerNode *cur = head;
-    while (cur != NULL)
-    {
+    /* print batsmen */
+    RoleNode *cur = team->batsman;
+    while (cur) {
+        PlayerData *p = &cur->data;
+        const char *roleStr = (p->role == ROLE_BATSMAN) ? "Batsman" : (p->role == ROLE_BOWLER ? "Bowler" : "All-rounder");
         printf("%-5d %-20s %-12s %6d %6.2f %7.2f %6d %6.2f %10d\n",
-               cur->data.playerId, cur->data.name, cur->data.role, cur->data.totalRuns,
-               cur->data.battingAverage, cur->data.strikeRate, cur->data.wickets,
-               cur->data.economyRate, cur->data.performanceIndex);
+               p->playerId, p->name, roleStr, p->totalRuns,
+               p->battingAverage, p->strikeRate, p->wickets, p->economyRate, p->performanceIndex);
         cur = cur->next;
     }
-}
-
-/* ---------- Teams sorted by avg SR ---------- */
-
-void sortTeamsByStrikeRate(TeamData out[], int n)
-{
-    /* simple bubble sort as earlier to preserve behavior */
-    for (int pass = 0; pass < n; ++pass)
-    {
-        for (int i = 0; i < n - pass - 1; ++i)
-        {
-            if (out[i].averageBattingStrikeRate < out[i + 1].averageBattingStrikeRate)
-            {
-                TeamData tmp = out[i];
-                out[i] = out[i + 1];
-                out[i + 1] = tmp;
-            }
-        }
+    /* print bowlers */
+    cur = team->bowlers;
+    while (cur) {
+        PlayerData *p = &cur->data;
+        const char *roleStr = (p->role == ROLE_BATSMAN) ? "Batsman" : (p->role == ROLE_BOWLER ? "Bowler" : "All-rounder");
+        printf("%-5d %-20s %-12s %6d %6.2f %7.2f %6d %6.2f %10d\n",
+               p->playerId, p->name, roleStr, p->totalRuns,
+               p->battingAverage, p->strikeRate, p->wickets, p->economyRate, p->performanceIndex);
+        cur = cur->next;
     }
+    /* print all-rounders */
+    cur = team->allRounders;
+    while (cur) {
+        PlayerData *p = &cur->data;
+        const char *roleStr = (p->role == ROLE_BATSMAN) ? "Batsman" : (p->role == ROLE_BOWLER ? "Bowler" : "All-rounder");
+        printf("%-5d %-20s %-12s %6d %6.2f %7.2f %6d %6.2f %10d\n",
+               p->playerId, p->name, roleStr, p->totalRuns,
+               p->battingAverage, p->strikeRate, p->wickets, p->economyRate, p->performanceIndex);
+        cur = cur->next;
+    }
+
+    printf(" ====================================================================================\n");
+    printf("Total Player: %d\n", team->totalPlayers);
+    printf("Average Batting Strike Rate: %f\n", team->averageBattingStrikeRate);
 }
 
+/* Display teams sorted by average batting strike rate (descending) */
 void displayTeamsByAvgBattingSR(TeamData teamsData[])
 {
     printf("Teams Sorted by Average Batting Strike Rate\n");
@@ -576,153 +515,131 @@ void displayTeamsByAvgBattingSR(TeamData teamsData[])
     printf("%-5s %-15s %-12s %-14s\n", "ID", "Team Name", "Avg Bat SR", "Total Players");
     printf(" ====================================================================================\n");
 
-    TeamData sortedTeams[MAX_TEAMS];
-    memcpy(sortedTeams, teamsData, sizeof(TeamData) * teamCount);
-    sortTeamsByStrikeRate(sortedTeams, teamCount);
+    /* Make a shallow copy of TeamData (we'll copy the struct values) */
+    TeamData copy[MAX_TEAMS];
+    int n = teamCount < MAX_TEAMS ? teamCount : MAX_TEAMS;
+    memcpy(copy, teamsData, sizeof(TeamData) * n);
 
-    for (int i = 0; i < teamCount; ++i)
-    {
+    /* bubble sort descending (keeps behavior similar to original) */
+    for (int pass = 0; pass < n; ++pass) {
+        for (int i = 0; i < n - pass - 1; ++i) {
+            if (copy[i].averageBattingStrikeRate < copy[i + 1].averageBattingStrikeRate) {
+                TeamData tmp = copy[i];
+                copy[i] = copy[i + 1];
+                copy[i + 1] = tmp;
+            }
+        }
+    }
+
+    for (int i = 0; i < n; ++i) {
         printf("%-5d %-15s %-12.2f %-14d\n",
-               sortedTeams[i].teamId,
-               sortedTeams[i].teamName,
-               sortedTeams[i].averageBattingStrikeRate,
-               sortedTeams[i].totalPlayers);
+               copy[i].teamId,
+               copy[i].teamName,
+               copy[i].averageBattingStrikeRate,
+               copy[i].totalPlayers);
     }
     printf(" ====================================================================================\n");
 }
 
-/* ---------- Top K players of a team by role (O(K)) ---------- */
-
-RoleNode** getRoleHeadPtr(TeamData *team, int role)
-{
-    if (role == 1) return &team->batsman;
-    if (role == 2) return &team->bowlers;
-    return &team->allRounders;
-}
-
-int getRoleCount(TeamData *team, int role)
-{
-    if (role == 1) return team->totalBatsman;
-    if (role == 2) return team->totalBowlers;
-    return team->totalAllRounders;
-}
-
-const char* getRoleName(int role)
-{
-    if (role == 1) return "Batsman";
-    if (role == 2) return "Bowler";
-    return "All-rounder";
-}
-
-/* prints header used earlier for TopK */
+/* Top-K players of a specific team by role: lists are PRE-SORTED so traversal O(K) */
 void displayTopKPlayers(TeamData teamsData[])
 {
-    int teamID;
-    while (1)
-    {
-        teamID = getValidatedInt("Enter Team ID:", 1, teamCount);
-        break;
+    int teamID = getValidatedInt("Enter Team ID: ", 1, INT_MAX);
+    int idx = findTeamIndexById(teamID);
+    if (idx == -1) { printf("Invalid Team ID!\n"); return; }
+    TeamData *team = &teamsData[idx];
+
+    RoleType role = getValidatedRole();
+    RoleNode *head = NULL;
+    int totalRole = 0;
+    const char *roleName = (role == ROLE_BATSMAN) ? "Batsman" : (role == ROLE_BOWLER ? "Bowler" : "All-rounder");
+
+    if (role == ROLE_BATSMAN) { head = team->batsman; totalRole = team->totalBatsman; }
+    else if (role == ROLE_BOWLER) { head = team->bowlers; totalRole = team->totalBowlers; }
+    else { head = team->allRounders; totalRole = team->totalAllRounders; }
+
+    if (totalRole == 0) {
+        printf("No players of role %s in team %s.\n", roleName, team->teamName);
+        return;
     }
 
-    int role = getValidatedRole();
+    int topK = getValidatedInt("Enter number of players: ", 1, totalRole);
 
-    RoleNode *roleList = NULL;
-    int totalRolePlayers = 0;
-    if (role == 1) { roleList = teamsData[teamID - 1].batsman; totalRolePlayers = teamsData[teamID - 1].totalBatsman; }
-    else if (role == 2) { roleList = teamsData[teamID - 1].bowlers; totalRolePlayers = teamsData[teamID - 1].totalBowlers; }
-    else { roleList = teamsData[teamID - 1].allRounders; totalRolePlayers = teamsData[teamID - 1].totalAllRounders; }
-
-    int topK;
-    while (1)
-    {
-        topK = getValidatedInt("Enter number of players: ", 1, totalRolePlayers > 0 ? totalRolePlayers : 1);
-        if (topK < 1 || topK > totalRolePlayers)
-        {
-            printf("K should be between 1 and %d\n", totalRolePlayers);
-            continue;
-        }
-        break;
-    }
-
-    printf("Top %d %s of %s :\n", topK, getRoleName(role), teamsData[teamID - 1].teamName);
+    printf("Top %d %s of %s :\n", topK, roleName, team->teamName);
     printPlayerTableHeader();
 
-    RoleNode *cur = roleList;
-    int count = 0;
-    while (cur != NULL && count < topK)
-    {
-        PlayerData *p = &cur->player->data;
+    RoleNode *cur = head;
+    int cnt = 0;
+    while (cur && cnt < topK) {
+        PlayerData *p = &cur->data;
+        const char *roleStr = (p->role == ROLE_BATSMAN) ? "Batsman" : (p->role == ROLE_BOWLER ? "Bowler" : "All-rounder");
         printf("%-5d %-20s %-12s %6d %6.2f %7.2f %6d %6.2f %10d\n",
-               p->playerId, p->name, p->role, p->totalRuns,
+               p->playerId, p->name, roleStr, p->totalRuns,
                p->battingAverage, p->strikeRate, p->wickets,
                p->economyRate, p->performanceIndex);
         cur = cur->next;
-        count++;
+        cnt++;
     }
 }
 
-/* ---------- Display all players across all teams of a role using k-way merge (O(N log t)) ---------- */
-
+/* Display all players across teams of a role using k-way merge (heap size <= t) */
 void displayPlayersAccordingToRole(TeamData teamsData[])
 {
-    int role = getValidatedRole();
-    const char *role_name = getRoleName(role);
+    RoleType role = getValidatedRole();
+    const char *roleName = (role == ROLE_BATSMAN) ? "Batsman" : (role == ROLE_BOWLER ? "Bowler" : "All-rounder");
 
-    printf("\n%s of all teams:\n", role_name);
+    printf("\n%s of all teams:\n", roleName);
     printf(" ====================================================================================\n");
     printf("%-5s %-20s %-12s %-12s %6s %6s %7s %6s %10s\n",
            "ID", "Name", "Team", "Role", "Runs", "Avg", "SR", "Wkts", "PerfIdx");
     printf(" ====================================================================================\n");
 
-    /* Build initial heap of RoleNode* heads (size <= teamCount) */
-    RoleNode *heap[MAX_TEAMS];
+    /* Build initial heap with head of each team's role list (<= teamCount entries) */
+    RoleNode *heap[MAX_HEAP_SIZE];
     int heapSize = 0;
-    for (int ti = 0; ti < teamCount; ++ti)
-    {
-        RoleNode *head = NULL;
-        if (role == 1) head = teamsData[ti].batsman;
-        else if (role == 2) head = teamsData[ti].bowlers;
-        else head = teamsData[ti].allRounders;
+    int tcount = teamCount < MAX_TEAMS ? teamCount : MAX_TEAMS;
 
-        if (head != NULL) heap[heapSize++] = head;
+    for (int i = 0; i < tcount; ++i) {
+        RoleNode *h = NULL;
+        if (role == ROLE_BATSMAN) h = teamsData[i].batsman;
+        else if (role == ROLE_BOWLER) h = teamsData[i].bowlers;
+        else h = teamsData[i].allRounders;
+
+        if (h) {
+            heap[heapSize++] = h;
+        }
     }
 
-    if (heapSize == 0)
-    {
-        printf("No players found for role %s.\n", role_name);
+    if (heapSize == 0) {
+        printf("No players found for role %s.\n", roleName);
         printf(" ====================================================================================\n");
         return;
     }
 
-   
     buildMaxHeap(heap, heapSize);
 
-    while (heapSize > 0)
-    {
-        RoleNode *topRoleNode = extractMaxRole(heap, &heapSize);
-        PlayerData *p = &topRoleNode->player->data;
+    while (heapSize > 0) {
+        RoleNode *top = extractMaxRole(heap, &heapSize);
+        PlayerData *p = &top->data;
+        const char *roleStr = (p->role == ROLE_BATSMAN) ? "Batsman" : (p->role == ROLE_BOWLER ? "Bowler" : "All-rounder");
         printf("%-5d %-20s %-12s %-12s %6d %6.2f %7.2f %6d %10d\n",
-               p->playerId, p->name, p->teamName, p->role,
+               p->playerId, p->name, p->teamName, roleStr,
                p->totalRuns, p->battingAverage, p->strikeRate,
                p->wickets, p->performanceIndex);
 
-        
-        if (topRoleNode->next != NULL)
-        {
-            heap[heapSize++] = topRoleNode->next;
-            
+        /* push next node from same team's role list (since role lists are independent per team) */
+        if (top->next) {
+            heap[heapSize++] = top->next;
+            /* sift-up */
             int i = heapSize - 1;
-            while (i > 0)
-            {
+            while (i > 0) {
                 int parent = (i - 1) / 2;
-                if (heap[parent]->player->data.performanceIndex < heap[i]->player->data.performanceIndex)
-                {
+                if (heap[parent]->data.performanceIndex < heap[i]->data.performanceIndex) {
                     RoleNode *tmp = heap[parent];
                     heap[parent] = heap[i];
                     heap[i] = tmp;
                     i = parent;
-                }
-                else break;
+                } else break;
             }
         }
     }
@@ -730,34 +647,29 @@ void displayPlayersAccordingToRole(TeamData teamsData[])
     printf(" ====================================================================================\n");
 }
 
-/* Heap helpers for RoleNode* heap (max-heap by performanceIndex) */
-
+/* Heap helpers (max-heap by performanceIndex) */
 void heapifyDown(RoleNode **heap, int size, int index)
 {
     int largest = index;
     int left = 2 * index + 1;
     int right = 2 * index + 2;
 
-    if (left < size && heap[left]->player->data.performanceIndex > heap[largest]->player->data.performanceIndex)
+    if (left < size && heap[left]->data.performanceIndex > heap[largest]->data.performanceIndex)
         largest = left;
-    if (right < size && heap[right]->player->data.performanceIndex > heap[largest]->player->data.performanceIndex)
+    if (right < size && heap[right]->data.performanceIndex > heap[largest]->data.performanceIndex)
         largest = right;
 
-    if (largest != index)
-    {
+    if (largest != index) {
         RoleNode *tmp = heap[index];
         heap[index] = heap[largest];
         heap[largest] = tmp;
         heapifyDown(heap, size, largest);
     }
 }
-
 void buildMaxHeap(RoleNode **heap, int size)
 {
-    for (int i = size / 2 - 1; i >= 0; --i)
-        heapifyDown(heap, size, i);
+    for (int i = size / 2 - 1; i >= 0; --i) heapifyDown(heap, size, i);
 }
-
 RoleNode* extractMaxRole(RoleNode **heap, int *size)
 {
     if (*size <= 0) return NULL;
@@ -768,199 +680,140 @@ RoleNode* extractMaxRole(RoleNode **heap, int *size)
     return maxNode;
 }
 
-/* ---------- Duplicate check across all teams (check main player nodes) ---------- */
-
+/* Duplicate ID check across all role lists (teams) */
 bool isDuplicatePlayerID(TeamData teamsData[], int playerID)
 {
-    for (int i = 0; i < teamCount; ++i)
-    {
-        PlayerNode *cur = teamsData[i].playersList;
-        while (cur != NULL)
-        {
-            if (cur->data.playerId == playerID) return true;
-            cur = cur->next;
-        }
+    int tcount = teamCount < MAX_TEAMS ? teamCount : MAX_TEAMS;
+    for (int i = 0; i < tcount; ++i) {
+        RoleNode *r = teamsData[i].batsman;
+        while (r) { if (r->data.playerId == playerID) return true; r = r->next; }
+        r = teamsData[i].bowlers;
+        while (r) { if (r->data.playerId == playerID) return true; r = r->next; }
+        r = teamsData[i].allRounders;
+        while (r) { if (r->data.playerId == playerID) return true; r = r->next; }
     }
     return false;
 }
 
-/* ---------- Add new player  ---------- */
-
-void addNewPlayers(TeamData teamsData[])
+/* Update strike rate summary on insert (O(1)) */
+void recalculateTeamAvgStrikeRate_O1_onInsert(TeamData *team, const PlayerData *p)
 {
-    int teamID = getValidatedInt("Enter Team ID to add player: ", 1, teamCount);
-    TeamData *team = &teamsData[teamID - 1];
+    if (p->role == ROLE_BATSMAN || p->role == ROLE_ALL_ROUNDER) {
+        team->cumulativeStrikeRate += p->strikeRate;
+        team->strikeRatePlayersCount++;
+    }
+    if (team->strikeRatePlayersCount > 0)
+        team->averageBattingStrikeRate = team->cumulativeStrikeRate / team->strikeRatePlayersCount;
+    else team->averageBattingStrikeRate = 0.0f;
+}
+
+/* Free helpers */
+void freeRoleList(RoleNode *head)
+{
+    RoleNode *tmp;
+    while (head) {
+        tmp = head; head = head->next; free(tmp);
+    }
+}
+void freeAllMemory(TeamData teamsData[])
+{
+    int tcount = teamCount < MAX_TEAMS ? teamCount : MAX_TEAMS;
+    for (int i = 0; i < tcount; ++i) {
+        freeRoleList(teamsData[i].batsman); teamsData[i].batsman = NULL;
+        freeRoleList(teamsData[i].bowlers); teamsData[i].bowlers = NULL;
+        freeRoleList(teamsData[i].allRounders); teamsData[i].allRounders = NULL;
+    }
+}
+
+/* Add new player flow (uses helper prompts). Maintains O(1) avg SR update and sorted role lists. */
+void addNewPlayerInteractive(TeamData teamsData[])
+{
+    int teamID = getValidatedInt("Enter Team ID to add player: ", 1, INT_MAX);
+    int tindex = findTeamIndexById(teamID);
+    if (tindex == -1) { printf("Invalid Team ID!\n"); return; }
+    TeamData *team = &teamsData[tindex];
 
     printf("Enter Player Details:\n");
-
     int playerID;
-    while (1)
-    {
-        playerID = getValidatedInt("Player ID: ", 1, 1000);
-        if (isDuplicatePlayerID(teamsData, playerID))
-        {
+    while (1) {
+        playerID = getValidatedInt("Player ID: ", 1, 1000000);
+        if (isDuplicatePlayerID(teamsData, playerID)) {
             printf("Error: Player ID %d already exists! Try again.\n", playerID);
             continue;
         }
         break;
     }
 
-    char playerName[50];
+    char playerName[MAX_NAME_LEN];
     printf("Name: ");
     getValidatedName(playerName, sizeof(playerName));
 
-    int role = getValidatedRole();
-    char roleName[20];
-    if (role == 1) strcpy(roleName, "Batsman");
-    else if (role == 2) strcpy(roleName, "Bowler");
-    else strcpy(roleName, "All-rounder");
+    RoleType role = getValidatedRole();
+    const char *roleStr = (role == ROLE_BATSMAN) ? "Batsman" : (role == ROLE_BOWLER ? "Bowler" : "All-rounder");
 
-    int runs = getValidatedInt("Total Runs: ", 0, 1000000);
+    int runs = getValidatedInt("Total Runs: ", 0, INT_MAX);
     float average = getValidatedFloat("Batting Average: ");
     float strikeRate = getValidatedFloat("Strike Rate: ");
-    int wickets = getValidatedInt("Wickets: ", 0, 1000000);
+    int wickets = getValidatedInt("Wickets: ", 0, INT_MAX);
     float economyRate = getValidatedFloat("Economy Rate: ");
 
     PlayerData pd;
     pd.playerId = playerID;
-    strcpy(pd.name, playerName);
-    strcpy(pd.teamName, team->teamName);
-    strcpy(pd.role, roleName);
+    strncpy(pd.name, playerName, MAX_NAME_LEN-1); pd.name[MAX_NAME_LEN-1] = '\0';
+    strncpy(pd.teamName, team->teamName, MAX_NAME_LEN-1); pd.teamName[MAX_NAME_LEN-1] = '\0';
+    pd.role = role;
     pd.totalRuns = runs;
     pd.battingAverage = average;
     pd.strikeRate = strikeRate;
     pd.wickets = wickets;
     pd.economyRate = economyRate;
-    pd.performanceIndex = computePerformanceIndex(pd);
+    pd.performanceIndex = computePerformanceIndex(&pd);
 
-    PlayerNode *mainNode = insertPlayerToMainList(&team->playersList, pd);
-    if (mainNode == NULL)
-    {
-        printf("Failed to add player due to allocation error.\n");
-        return;
+    /* insert into correct role list (keeps sorted by perf) */
+    if (role == ROLE_BATSMAN) {
+        insertIntoRoleList(&team->batsman, pd);
+        team->totalBatsman++;
+    } else if (role == ROLE_BOWLER) {
+        insertIntoRoleList(&team->bowlers, pd);
+        team->totalBowlers++;
+    } else {
+        insertIntoRoleList(&team->allRounders, pd);
+        team->totalAllRounders++;
     }
+
     team->totalPlayers++;
-
-    if (role == 1) { insertPlayerIntoRoleList(&team->batsman, mainNode); team->totalBatsman++; }
-    else if (role == 2) { insertPlayerIntoRoleList(&team->bowlers, mainNode); team->totalBowlers++; }
-    else { insertPlayerIntoRoleList(&team->allRounders, mainNode); team->totalAllRounders++; }
-
-    recalculateTeamAvgStrikeRate(team);
+    recalculateTeamAvgStrikeRate_O1_onInsert(team, &pd);
 
     printf("\nPlayer added successfully to Team %s!\n", team->teamName);
 }
 
-/* ---------- Average strike rate recalculation ---------- */
-
-void recalculateTeamAvgStrikeRate(TeamData *team)
-{
-    float totalSR = 0.0f;
-    int count = 0;
-    PlayerNode *cur = team->playersList;
-    while (cur != NULL)
-    {
-        if (strcmp(cur->data.role, "Batsman") == 0 || strcmp(cur->data.role, "All-rounder") == 0)
-        {
-            totalSR += cur->data.strikeRate;
-            count++;
-        }
-        cur = cur->next;
-    }
-    if (count > 0) team->averageBattingStrikeRate = totalSR / count;
-    else team->averageBattingStrikeRate = 0.0f;
-}
-
-/* ---------- Freeing memory ---------- */
-
-void freeLinkedList(PlayerNode *head)
-{
-    PlayerNode *tmp;
-    while (head != NULL)
-    {
-        tmp = head;
-        head = head->next;
-        free(tmp);
-    }
-}
-
-void freeRoleList(RoleNode *head)
-{
-    RoleNode *tmp;
-    while (head != NULL)
-    {
-        tmp = head;
-        head = head->next;
-        free(tmp); 
-    }
-}
-
-void freeAllMemory(TeamData teamsData[])
-{
-    for (int i = 0; i < teamCount; ++i)
-    {
-       
-        freeRoleList(teamsData[i].batsman);
-        freeRoleList(teamsData[i].bowlers);
-        freeRoleList(teamsData[i].allRounders);
-
-        teamsData[i].batsman = NULL;
-        teamsData[i].bowlers = NULL;
-        teamsData[i].allRounders = NULL;
-
-        
-        freeLinkedList(teamsData[i].playersList);
-        teamsData[i].playersList = NULL;
-    }
-}
-
 /* ---------- main ---------- */
-
-int main()
+int main(void)
 {
     TeamData teamsData[MAX_TEAMS];
     initialiseTeamsData(teamsData);
     loadInitialPlayers(teamsData);
 
     printMenu();
-
-    while (1)
-    {
+    while (1) {
         int choice = getValidatedInt("\nEnter your choice: ", 1, 6);
-        if (!validChoice(choice))
-        {
-            printf("Invalid choice! Try again.\n");
-            continue;
-        }
-
-        switch (choice)
-        {
-            case 1:
-                addNewPlayers(teamsData);
-                break;
-            case 2:
-            {
-                int id = getValidatedInt("Enter Team ID :", 1, teamCount);
-                displayPlayerOFTeam(teamsData, id);
+        switch (choice) {
+            case 1: addNewPlayerInteractive(teamsData); break;
+            case 2: {
+                int id = getValidatedInt("Enter Team ID : ", 1, INT_MAX);
+                displayPlayerOfTeam(teamsData, id);
                 break;
             }
-            case 3:
-                displayTeamsByAvgBattingSR(teamsData);
-                break;
-            case 4:
-                displayTopKPlayers(teamsData);
-                break;
-            case 5:
-                displayPlayersAccordingToRole(teamsData);
-                break;
+            case 3: displayTeamsByAvgBattingSR(teamsData); break;
+            case 4: displayTopKPlayers(teamsData); break;
+            case 5: displayPlayersAccordingToRole(teamsData); break;
             case 6:
                 printf("exiting program!!!");
                 freeAllMemory(teamsData);
-                exit(0);
-            default:
-                printf("Invalid choice! Try again.\n");
+                return 0;
+            default: printf("Invalid choice! Try again.\n"); break;
         }
         printMenu();
     }
-
     return 0;
 }
