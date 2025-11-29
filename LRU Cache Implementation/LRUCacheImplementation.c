@@ -3,57 +3,59 @@
 #include <string.h>
 
 #define MAX_VALUE_LEN 100
-#define HASH_SIZE 2003  
+#define HASH_SIZE 2003   
 
-/** NODE STRUCT FOR QUEUE **/
-typedef struct Node {
+/********************* DOUBLY LINKED LIST NODE *********************/
+typedef struct QueueNode {
     int key;
     char value[MAX_VALUE_LEN];
-    struct Node *prev, *next;
-} Node;
+    struct QueueNode *prev, *next;
+} QueueNode;
 
-/** HASHMAP ENTRY **/
+/********************* HASHMAP ENTRY *********************/
 typedef struct HashEntry {
     int key;
-    Node *address;      
+    QueueNode *address;         
     struct HashEntry *next;
 } HashEntry;
 
-/** LRU CACHE STRUCT **/
+/********************* LRU CACHE STRUCT *********************/
 typedef struct LRUCache {
     int capacity;
     int size;
-    Node *head;   
-    Node *tail;
+    QueueNode *head; 
+    QueueNode *tail; 
     HashEntry *map[HASH_SIZE];
 } LRUCache;
 
-/** HASH FUNCTION **/
+/********************* HASH FUNCTION FOR NEGATIVE KEYS *********************/
 int hash(int key) {
-    return key % HASH_SIZE;
-}
-
-/** CREATE NEW DLL NODE **/
-Node* createNode(int key, const char *value) {
-    Node *n = (Node*)malloc(sizeof(Node));
-    n->key = key;
-    strncpy(n->value, value, MAX_VALUE_LEN);
-    n->value[MAX_VALUE_LEN - 1] = '\0';
-    n->prev = n->next = NULL;
-    return n;
-}
-
-/** CREATE NEW HASH ENTRY **/
-HashEntry* createHashEntry(int key, Node *addr) {
-    HashEntry *h = (HashEntry*)malloc(sizeof(HashEntry));
-    h->key = key;
-    h->address = addr;
-    h->next = NULL;
+    int h = key % HASH_SIZE;
+    if (h < 0) h += HASH_SIZE;
     return h;
 }
 
-/** FIND IN HASHMAP **/
-Node* hashGet(LRUCache *cache, int key) {
+/********************* CREATE NEW QUEUE NODE *********************/
+QueueNode* createQueueNode(int key, const char *value) {
+    QueueNode *node = (QueueNode*)malloc(sizeof(QueueNode));
+    node->key = key;
+    strncpy(node->value, value, MAX_VALUE_LEN);
+    node->value[MAX_VALUE_LEN - 1] = '\0';
+    node->prev = node->next = NULL;
+    return node;
+}
+
+/********************* CREATE NEW HASH ENTRY *********************/
+HashEntry* createHashEntry(int key, QueueNode *addr) {
+    HashEntry *entry = (HashEntry*)malloc(sizeof(HashEntry));
+    entry->key = key;
+    entry->address = addr;
+    entry->next = NULL;
+    return entry;
+}
+
+/********************* HASHMAP GET *********************/
+QueueNode* hashGet(LRUCache *cache, int key) {
     int h = hash(key);
     HashEntry *entry = cache->map[h];
     while (entry) {
@@ -63,15 +65,15 @@ Node* hashGet(LRUCache *cache, int key) {
     return NULL;
 }
 
-/** INSERT INTO HASHMAP **/
-void hashPut(LRUCache *cache, int key, Node *node) {
+/********************* HASHMAP PUT *********************/
+void hashPut(LRUCache *cache, int key, QueueNode *node) {
     int h = hash(key);
     HashEntry *newEntry = createHashEntry(key, node);
     newEntry->next = cache->map[h];
     cache->map[h] = newEntry;
 }
 
-/** DELETE FROM HASHMAP **/
+/********************* HASHMAP DELETE *********************/
 void hashDelete(LRUCache *cache, int key) {
     int h = hash(key);
     HashEntry *entry = cache->map[h], *prev = NULL;
@@ -88,32 +90,36 @@ void hashDelete(LRUCache *cache, int key) {
     }
 }
 
-/** MOVE NODE TO FRONT (MRU) **/
-void moveToFront(LRUCache *cache, Node *node) {
-    if (cache->head == node) return;
+/********************* MOVE NODE TO FRONT (MRU) *********************/
+void moveToFront(LRUCache *cache, QueueNode *node) {
+    if (cache->head == node) return; // already MRU
 
-    // unlink node
+    // unlink
     if (node->prev) node->prev->next = node->next;
     if (node->next) node->next->prev = node->prev;
 
-    // if tail removed
+    // update tail if needed
     if (cache->tail == node)
         cache->tail = node->prev;
 
-    // insert at head
+    // place at head
     node->prev = NULL;
     node->next = cache->head;
-    if (cache->head) cache->head->prev = node;
+
+    if (cache->head)
+        cache->head->prev = node;
+
     cache->head = node;
 
-    if (cache->tail == NULL) cache->tail = node;
+    if (cache->tail == NULL)
+        cache->tail = node;
 }
 
-/** REMOVE LRU (TAIL) **/
+/********************* REMOVE LRU NODE *********************/
 void removeLRU(LRUCache *cache) {
     if (!cache->tail) return;
 
-    Node *lru = cache->tail;
+    QueueNode *lru = cache->tail;
     hashDelete(cache, lru->key);
 
     if (lru->prev)
@@ -121,15 +127,15 @@ void removeLRU(LRUCache *cache) {
 
     cache->tail = lru->prev;
 
-    if (cache->tail == NULL)
+    if (!cache->tail)
         cache->head = NULL;
 
     free(lru);
     cache->size--;
 }
 
-/** ADD TO FRONT AS MRU **/
-void addToFront(LRUCache *cache, Node *node) {
+/********************* ADD NODE TO FRONT *********************/
+void addToFront(LRUCache *cache, QueueNode *node) {
     node->prev = NULL;
     node->next = cache->head;
 
@@ -144,39 +150,38 @@ void addToFront(LRUCache *cache, Node *node) {
     cache->size++;
 }
 
-/** LRU CACHE API: get(key) **/
+/********************* LRU GET *********************/
 char* get(LRUCache *cache, int key) {
-    Node *node = hashGet(cache, key);
-
+    QueueNode *node = hashGet(cache, key);
     if (!node) return NULL;
 
     moveToFront(cache, node);
     return node->value;
 }
 
-/** LRU CACHE API put(key, value) **/
+/********************* LRU PUT *********************/
 void put(LRUCache *cache, int key, const char *value) {
-    Node *node = hashGet(cache, key);
+    QueueNode *node = hashGet(cache, key);
 
     if (node) {
-        
+        // update value
         strncpy(node->value, value, MAX_VALUE_LEN);
         node->value[MAX_VALUE_LEN - 1] = '\0';
         moveToFront(cache, node);
         return;
     }
 
-    
+    // remove LRU if cache full
     if (cache->size == cache->capacity) {
         removeLRU(cache);
     }
 
-    Node *newNode = createNode(key, value);
+    QueueNode *newNode = createQueueNode(key, value);
     addToFront(cache, newNode);
     hashPut(cache, key, newNode);
 }
 
-/** CREATE CACHE **/
+/********************* CREATE CACHE *********************/
 LRUCache* createCache(int capacity) {
     LRUCache *cache = (LRUCache*)malloc(sizeof(LRUCache));
     cache->capacity = capacity;
@@ -189,20 +194,43 @@ LRUCache* createCache(int capacity) {
     return cache;
 }
 
+/********************* CLEANUP *********************/
+void freeCache(LRUCache *cache) {
+    // free DLL
+    QueueNode *cur = cache->head;
+    while (cur) {
+        QueueNode *next = cur->next;
+        free(cur);
+        cur = next;
+    }
 
+    // free hashmap
+    for (int i = 0; i < HASH_SIZE; i++) {
+        HashEntry *entry = cache->map[i];
+        while (entry) {
+            HashEntry *next = entry->next;
+            free(entry);
+            entry = next;
+        }
+    }
+
+    free(cache);
+}
+
+/********************* MAIN DRIVER *********************/
 int main() {
-    LRUCache *cache = NULL;
+    int size;
+    printf("Enter cache capacity: ");
+    scanf("%d", &size);
+
+    LRUCache *cache = createCache(size);
+
     char command[50];
 
     while (1) {
         scanf("%s", command);
 
-        if (strcmp(command, "createCache") == 0) {
-            int size;
-            scanf("%d", &size);
-            cache = createCache(size);
-        }
-        else if (strcmp(command, "put") == 0) {
+        if (strcmp(command, "put") == 0) {
             int key;
             char data[MAX_VALUE_LEN];
             scanf("%d %s", &key, data);
@@ -216,6 +244,7 @@ int main() {
             else printf("NULL\n");
         }
         else if (strcmp(command, "exit") == 0) {
+            freeCache(cache);
             break;
         }
     }
